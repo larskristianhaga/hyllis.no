@@ -1,19 +1,23 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/larskristianhaga/hyllis.no/internal/book"
+	"github.com/larskristianhaga/hyllis.no/internal/lookup"
 	"github.com/larskristianhaga/hyllis.no/internal/web"
 )
 
-// handlers wires the HTTP routes to the template renderer and the book
-// repository (an in-memory mock until a real store is wired up).
+// handlers wires the HTTP routes to the template renderer, the book
+// repository (an in-memory mock until a real store is wired up), and the
+// ISBN lookup service.
 type handlers struct {
 	render *web.Renderer
 	books  book.Repository
+	lookup *lookup.Service
 }
 
 // homeRecentLimit caps how many books the home page's "recently added"
@@ -42,8 +46,12 @@ type errorMessageData struct {
 	Message string
 }
 
-func newHandlers(render *web.Renderer, books book.Repository) *handlers {
-	return &handlers{render: render, books: books}
+type manualEntryFormData struct {
+	ISBN string
+}
+
+func newHandlers(render *web.Renderer, books book.Repository, lookupSvc *lookup.Service) *handlers {
+	return &handlers{render: render, books: books, lookup: lookupSvc}
 }
 
 // --- full pages ------------------------------------------------------
@@ -101,8 +109,11 @@ func (h *handlers) registerSubmit(w http.ResponseWriter, r *http.Request) {
 // --- HTMX partial endpoints -------------------------------------------
 
 // scanSubmit backs both the camera scanner (via htmx.ajax) and the manual
-// ISBN fallback form. It always returns a fragment: a scan-result partial
-// on success, or an error-message partial on invalid input / no match.
+// ISBN fallback form. It resolves the ISBN via the cache→Google
+// Books→Open Library→Nasjonalbiblioteket chain (internal/lookup), persists
+// the result, and always returns a fragment: a scan-result partial on
+// success, a manual-entry-form when nothing resolves the ISBN, or an
+// error-message on invalid input.
 func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig forespørsel."})
@@ -117,15 +128,72 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b, err := h.books.GetByID(r.Context(), isbn)
+	b, err := h.lookup.Resolve(r.Context(), isbn)
+	if errors.Is(err, lookup.ErrNotFound) {
+		h.render.Partial(w, "manual-entry-form", manualEntryFormData{ISBN: isbn})
+		return
+	}
 	if err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{
-			Message: "Fant ingen bok med ISBN " + isbn + ".",
+			Message: "Noe gikk feil under oppslag av ISBN " + isbn + ". Prøv igjen.",
 		})
 		return
 	}
 
-	h.render.Partial(w, "scan-result", scanResultData{Book: b})
+	saved, err := h.saveBook(r, b)
+	if err != nil {
+		h.render.Partial(w, "error-message", errorMessageData{
+			Message: "Fant boken, men kunne ikke lagre den. Prøv igjen.",
+		})
+		return
+	}
+
+	h.render.Partial(w, "scan-result", scanResultData{Book: saved})
+}
+
+// manualSubmit backs the manual-entry-form shown when scanSubmit's lookup
+// chain misses on every source. The book is persisted with kilde "manual"
+// per the project's fallback rule.
+func (h *handlers) manualSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig forespørsel."})
+		return
+	}
+
+	isbn := strings.TrimSpace(r.FormValue("isbn"))
+	title := strings.TrimSpace(r.FormValue("title"))
+	author := strings.TrimSpace(r.FormValue("author"))
+	publisher := strings.TrimSpace(r.FormValue("publisher"))
+
+	if !isValidEAN13(isbn) || title == "" || author == "" {
+		h.render.Partial(w, "error-message", errorMessageData{
+			Message: "Utfyll ISBN, tittel og forfatter for å legge til boken manuelt.",
+		})
+		return
+	}
+
+	b := &book.Book{ISBN: isbn, Title: title, Author: author, Publisher: publisher, Source: "manual"}
+	saved, err := h.saveBook(r, b)
+	if err != nil {
+		h.render.Partial(w, "error-message", errorMessageData{Message: "Kunne ikke lagre boken. Prøv igjen."})
+		return
+	}
+
+	h.render.Partial(w, "scan-result", scanResultData{Book: saved})
+}
+
+// saveBook persists a resolved-but-not-yet-saved book. If the ISBN already
+// exists (another user scanned/entered it before — the books table is
+// shared across all users), it returns the existing row instead of
+// creating a duplicate, per the project's duplicate-ISBN rule.
+func (h *handlers) saveBook(r *http.Request, b *book.Book) (*book.Book, error) {
+	if err := h.books.Create(r.Context(), b); err != nil {
+		if errors.Is(err, book.ErrDuplicateISBN) {
+			return h.books.GetByISBN(r.Context(), b.ISBN)
+		}
+		return nil, err
+	}
+	return b, nil
 }
 
 // librarySearch backs the search-as-you-type input on the library page.

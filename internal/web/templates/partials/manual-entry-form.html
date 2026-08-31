@@ -1,0 +1,22 @@
+{{define "manual-entry-form"}}
+<div class="scan-result scan-result--not-found" role="status">
+  <p class="scan-result__message">
+    Fant ingen treff for ISBN {{.ISBN}} i Google Books, Open Library eller Nasjonalbiblioteket.
+    Legg inn boken manuelt:
+  </p>
+  <form class="manual-isbn-form" hx-post="/books/manual" hx-target="#scan-result" hx-swap="innerHTML">
+    <input type="hidden" name="isbn" value="{{.ISBN}}">
+
+    <label for="manual-title">Tittel</label>
+    <input id="manual-title" name="title" required>
+
+    <label for="manual-author">Forfatter</label>
+    <input id="manual-author" name="author" required>
+
+    <label for="manual-publisher">Forlag (valgfritt)</label>
+    <input id="manual-publisher" name="publisher">
+
+    <button type="submit" class="btn btn-primary">Legg til bok</button>
+  </form>
+</div>
+{{end}}

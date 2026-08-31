@@ -21,7 +21,7 @@ func TestLibraryRepository_CreateGetUpdateDelete(t *testing.T) {
 	if err := users.Create(ctx, u); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	b := &book.Book{ISBN: "9780000000020", Title: "Kristin Lavransdatter", Author: "Sigrid Undset"}
+	b := &book.Book{ISBN: "9780000000020", Title: "Kristin Lavransdatter", Author: "Sigrid Undset", Source: "manual"}
 	if err := books.Create(ctx, b); err != nil {
 		t.Fatalf("create book: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestLibraryRepository_DuplicateUserBookIsRejected(t *testing.T) {
 	if err := users.Create(ctx, u); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	b := &book.Book{ISBN: "9780000000021", Title: "Duplikatboken", Author: "En Forfatter"}
+	b := &book.Book{ISBN: "9780000000021", Title: "Duplikatboken", Author: "En Forfatter", Source: "manual"}
 	if err := books.Create(ctx, b); err != nil {
 		t.Fatalf("create book: %v", err)
 	}

@@ -21,13 +21,13 @@ func NewBookRepository(db dbtx) *BookRepository {
 	return &BookRepository{db: db}
 }
 
-const bookColumns = "id, isbn, title, author, publisher, year, cover_url, language, pages, created_at"
+const bookColumns = "id, isbn, title, author, publisher, year, cover_url, language, pages, source, created_at"
 
 func scanBook(row scanner) (*book.Book, error) {
 	var b book.Book
 	var publisher, coverURL, language *string
 	var year, pages *int
-	if err := row.Scan(&b.ID, &b.ISBN, &b.Title, &b.Author, &publisher, &year, &coverURL, &language, &pages, &b.CreatedAt); err != nil {
+	if err := row.Scan(&b.ID, &b.ISBN, &b.Title, &b.Author, &publisher, &year, &coverURL, &language, &pages, &b.Source, &b.CreatedAt); err != nil {
 		return nil, err
 	}
 	if publisher != nil {
@@ -49,12 +49,12 @@ func scanBook(row scanner) (*book.Book, error) {
 }
 
 func (r *BookRepository) Create(ctx context.Context, b *book.Book) error {
-	const q = `INSERT INTO books (isbn, title, author, publisher, year, cover_url, language, pages)
-	           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	const q = `INSERT INTO books (isbn, title, author, publisher, year, cover_url, language, pages, source)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	           RETURNING id, created_at`
 	err := r.db.QueryRow(ctx, q,
 		b.ISBN, b.Title, b.Author,
-		nullableString(b.Publisher), nullableInt(b.Year), nullableString(b.CoverURL), nullableString(b.Language), nullableInt(b.Pages),
+		nullableString(b.Publisher), nullableInt(b.Year), nullableString(b.CoverURL), nullableString(b.Language), nullableInt(b.Pages), b.Source,
 	).Scan(&b.ID, &b.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -138,10 +138,10 @@ func (r *BookRepository) Search(ctx context.Context, query string) ([]*book.Book
 }
 
 func (r *BookRepository) Update(ctx context.Context, b *book.Book) error {
-	const q = `UPDATE books SET isbn=$2, title=$3, author=$4, publisher=$5, year=$6, cover_url=$7, language=$8, pages=$9 WHERE id=$1`
+	const q = `UPDATE books SET isbn=$2, title=$3, author=$4, publisher=$5, year=$6, cover_url=$7, language=$8, pages=$9, source=$10 WHERE id=$1`
 	tag, err := r.db.Exec(ctx, q,
 		b.ID, b.ISBN, b.Title, b.Author,
-		nullableString(b.Publisher), nullableInt(b.Year), nullableString(b.CoverURL), nullableString(b.Language), nullableInt(b.Pages),
+		nullableString(b.Publisher), nullableInt(b.Year), nullableString(b.CoverURL), nullableString(b.Language), nullableInt(b.Pages), b.Source,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {

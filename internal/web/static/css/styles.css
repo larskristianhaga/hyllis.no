@@ -393,3 +393,15 @@ input:focus-visible {
 .scan-result--success .book-detail__cover {
   background: var(--color-surface);
 }
+
+.scan-result--not-found {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: var(--spacing-2);
+  margin: var(--spacing-2) 0;
+}
+
+.scan-result--not-found .manual-isbn-form {
+  margin-top: var(--spacing-2);
+}

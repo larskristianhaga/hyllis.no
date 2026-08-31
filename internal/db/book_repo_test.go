@@ -20,6 +20,7 @@ func TestBookRepository_CreateGetListUpdateDelete(t *testing.T) {
 		Year:     2024,
 		Language: "no",
 		Pages:    200,
+		Source:   "manual",
 	}
 	if err := repo.Create(ctx, b); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -72,7 +73,7 @@ func TestBookRepository_GetByISBN(t *testing.T) {
 	repo := NewBookRepository(tx)
 	ctx := context.Background()
 
-	b := &book.Book{ISBN: "9780000000002", Title: "Fjellet og fjorden", Author: "Ola Nordmann"}
+	b := &book.Book{ISBN: "9780000000002", Title: "Fjellet og fjorden", Author: "Ola Nordmann", Source: "manual"}
 	if err := repo.Create(ctx, b); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -95,12 +96,12 @@ func TestBookRepository_CreateDuplicateISBN(t *testing.T) {
 	repo := NewBookRepository(tx)
 	ctx := context.Background()
 
-	b1 := &book.Book{ISBN: "9780000000003", Title: "Første bok", Author: "Forfatter A"}
+	b1 := &book.Book{ISBN: "9780000000003", Title: "Første bok", Author: "Forfatter A", Source: "manual"}
 	if err := repo.Create(ctx, b1); err != nil {
 		t.Fatalf("Create first book: %v", err)
 	}
 
-	b2 := &book.Book{ISBN: "9780000000003", Title: "Andre bok", Author: "Forfatter B"}
+	b2 := &book.Book{ISBN: "9780000000003", Title: "Andre bok", Author: "Forfatter B", Source: "manual"}
 	if err := repo.Create(ctx, b2); !errors.Is(err, book.ErrDuplicateISBN) {
 		t.Fatalf("Create duplicate isbn = %v, want book.ErrDuplicateISBN", err)
 	}
@@ -112,9 +113,9 @@ func TestBookRepository_Search(t *testing.T) {
 	ctx := context.Background()
 
 	seed := []*book.Book{
-		{ISBN: "9780000000010", Title: "Harry Potter og de vises stein", Author: "J.K. Rowling"},
-		{ISBN: "9780000000011", Title: "Harry Potter og kammeret hemmelighet", Author: "J.K. Rowling"},
-		{ISBN: "9780000000012", Title: "Snømannen", Author: "Jo Nesbø"},
+		{ISBN: "9780000000010", Title: "Harry Potter og de vises stein", Author: "J.K. Rowling", Source: "manual"},
+		{ISBN: "9780000000011", Title: "Harry Potter og kammeret hemmelighet", Author: "J.K. Rowling", Source: "manual"},
+		{ISBN: "9780000000012", Title: "Snømannen", Author: "Jo Nesbø", Source: "manual"},
 	}
 	for _, b := range seed {
 		if err := repo.Create(ctx, b); err != nil {

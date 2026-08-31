@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/larskristianhaga/hyllis.no/internal/book"
+	"github.com/larskristianhaga/hyllis.no/internal/lookup"
 	"github.com/larskristianhaga/hyllis.no/internal/web"
 )
 
 // New builds an *http.Server listening on addr with all routes registered.
-func New(addr string, render *web.Renderer, books book.Repository) *http.Server {
-	h := newHandlers(render, books)
+func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lookup.Service) *http.Server {
+	h := newHandlers(render, books, lookupSvc)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
@@ -24,6 +25,7 @@ func New(addr string, render *web.Renderer, books book.Repository) *http.Server 
 	mux.HandleFunc("GET /books/search", h.librarySearch)
 	mux.HandleFunc("GET /books/{id}", h.bookDetail)
 	mux.HandleFunc("POST /books/scan", h.scanSubmit)
+	mux.HandleFunc("POST /books/manual", h.manualSubmit)
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
 	mux.HandleFunc("GET /register", h.registerPage)

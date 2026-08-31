@@ -28,12 +28,28 @@ func NewMemoryRepository(seed []*Book) *MemoryRepository {
 	return &MemoryRepository{books: books}
 }
 
+// Create assigns b.ID/b.CreatedAt when unset, mirroring how the real
+// Postgres-backed repository generates these via `RETURNING id, created_at`.
+// The ID is set equal to the ISBN, matching SeedBooks' convention so a
+// scanned EAN-13 barcode can be used directly as a lookup key.
 func (r *MemoryRepository) Create(_ context.Context, b *Book) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if b.ID == "" {
+		b.ID = b.ISBN
+	}
+	if b.CreatedAt.IsZero() {
+		b.CreatedAt = time.Now()
+	}
+
 	if _, exists := r.books[b.ID]; exists {
-		return fmt.Errorf("book with id %q already exists", b.ID)
+		return ErrDuplicateISBN
+	}
+	for _, existing := range r.books {
+		if existing.ISBN == b.ISBN {
+			return ErrDuplicateISBN
+		}
 	}
 	copied := *b
 	r.books[b.ID] = &copied
@@ -128,14 +144,14 @@ func SeedBooks() []*Book {
 	}
 
 	books := []*Book{
-		{ISBN: "9788203293176", Title: "Sult", Author: "Knut Hamsun", Publisher: "Gyldendal", Year: 1890, Language: "no", Pages: 224, CreatedAt: day(2025, time.January, 12)},
-		{ISBN: "9788203365117", Title: "Fuglane", Author: "Tarjei Vesaas", Publisher: "Gyldendal", Year: 1957, Language: "no", Pages: 224, CreatedAt: day(2025, time.February, 3)},
-		{ISBN: "9780143127550", Title: "The Hobbit", Author: "J.R.R. Tolkien", Publisher: "Penguin Classics", Year: 1937, Language: "en", Pages: 310, CreatedAt: day(2025, time.March, 21)},
-		{ISBN: "9780451524935", Title: "1984", Author: "George Orwell", Publisher: "Signet Classics", Year: 1949, Language: "en", Pages: 328, CreatedAt: day(2025, time.April, 9)},
-		{ISBN: "9780061120084", Title: "To Kill a Mockingbird", Author: "Harper Lee", Publisher: "Harper Perennial", Year: 1960, Language: "en", Pages: 336, CreatedAt: day(2025, time.May, 17)},
-		{ISBN: "9780544003415", Title: "The Lord of the Rings", Author: "J.R.R. Tolkien", Publisher: "Houghton Mifflin", Year: 1954, Language: "en", Pages: 1178, CreatedAt: day(2025, time.June, 30)},
-		{ISBN: "9788205442104", Title: "Bikubesong", Author: "Frode Grytten", Publisher: "Cappelen Damm", Year: 1999, Language: "no", Pages: 256, CreatedAt: day(2025, time.July, 22)},
-		{ISBN: "9780316769488", Title: "The Catcher in the Rye", Author: "J.D. Salinger", Publisher: "Little, Brown and Company", Year: 1951, Language: "en", Pages: 224, CreatedAt: day(2025, time.August, 14)},
+		{ISBN: "9788203293176", Title: "Sult", Author: "Knut Hamsun", Publisher: "Gyldendal", Year: 1890, Language: "no", Pages: 224, Source: "manual", CreatedAt: day(2025, time.January, 12)},
+		{ISBN: "9788203365117", Title: "Fuglane", Author: "Tarjei Vesaas", Publisher: "Gyldendal", Year: 1957, Language: "no", Pages: 224, Source: "manual", CreatedAt: day(2025, time.February, 3)},
+		{ISBN: "9780143127550", Title: "The Hobbit", Author: "J.R.R. Tolkien", Publisher: "Penguin Classics", Year: 1937, Language: "en", Pages: 310, Source: "manual", CreatedAt: day(2025, time.March, 21)},
+		{ISBN: "9780451524935", Title: "1984", Author: "George Orwell", Publisher: "Signet Classics", Year: 1949, Language: "en", Pages: 328, Source: "manual", CreatedAt: day(2025, time.April, 9)},
+		{ISBN: "9780061120084", Title: "To Kill a Mockingbird", Author: "Harper Lee", Publisher: "Harper Perennial", Year: 1960, Language: "en", Pages: 336, Source: "manual", CreatedAt: day(2025, time.May, 17)},
+		{ISBN: "9780544003415", Title: "The Lord of the Rings", Author: "J.R.R. Tolkien", Publisher: "Houghton Mifflin", Year: 1954, Language: "en", Pages: 1178, Source: "manual", CreatedAt: day(2025, time.June, 30)},
+		{ISBN: "9788205442104", Title: "Bikubesong", Author: "Frode Grytten", Publisher: "Cappelen Damm", Year: 1999, Language: "no", Pages: 256, Source: "manual", CreatedAt: day(2025, time.July, 22)},
+		{ISBN: "9780316769488", Title: "The Catcher in the Rye", Author: "J.D. Salinger", Publisher: "Little, Brown and Company", Year: 1951, Language: "en", Pages: 224, Source: "manual", CreatedAt: day(2025, time.August, 14)},
 	}
 
 	for _, b := range books {

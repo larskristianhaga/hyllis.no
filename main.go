@@ -1,4 +1,4 @@
-// Command server is the HTTP entrypoint for hyllis.no.
+// Command hyllis is the HTTP entrypoint for hyllis.no.
 package main
 
 import (
