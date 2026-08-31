@@ -40,7 +40,7 @@ func runTests(m *testing.M) int {
 	}
 	defer cleanup()
 
-	if err := RunMigrations(ctx, db); err != nil {
+	if err := RunMigrations(ctx, db, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "db: apply migrations:", err)
 		return 1
 	}
