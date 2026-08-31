@@ -73,7 +73,7 @@ Viktig prinsipp: skann-operasjonen er den eneste som snakker med eksterne tjenes
 
 ## Miljøvariabler
 
-Forventede env-vars som skal konfigureres (aldri hardkodes):
+Forventede env-vars som ligger i som secrets i Fly.io:
 
 - `DATABASE_URL` – tilkobling til Supabase Postgres
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` – for auth-validering og evt. server-side Supabase-kall
