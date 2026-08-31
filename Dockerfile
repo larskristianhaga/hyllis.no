@@ -1,16 +1,18 @@
-# syntax=docker/dockerfile:1
+FROM golang:1.26-alpine AS builder
 
-FROM golang:1.27-alpine AS build
-WORKDIR /src
+WORKDIR /usr/src/app
 
-COPY go.mod ./
-RUN go mod download
+COPY go.mod go.sum ./
+
+RUN go mod download && go mod verify
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/server
 
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/server /server
+RUN go build -v -o /run-app .
+
+FROM gcr.io/distroless/static-debian12
 
 EXPOSE 8080
-ENTRYPOINT ["/server"]
+
+COPY --from=builder /run-app /usr/local/bin/
+CMD ["run-app"]
