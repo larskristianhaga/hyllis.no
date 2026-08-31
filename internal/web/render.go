@@ -29,7 +29,8 @@ var pageNames = []string{
 }
 
 var funcMap = template.FuncMap{
-	"initial": initial,
+	"initial":     initial,
+	"sourceLabel": sourceLabel,
 }
 
 // initial returns an uppercased, one-character placeholder used for the
@@ -41,6 +42,24 @@ func initial(s string) string {
 	}
 	r := []rune(s)
 	return strings.ToUpper(string(r[0]))
+}
+
+// sourceLabels maps book.Book.Source values (as stored, per CLAUDE.md's
+// "kilde" field) to the human-readable names shown in the UI.
+var sourceLabels = map[string]string{
+	"google_books": "Google Books",
+	"open_library": "Open Library",
+	"nb":           "Nasjonalbiblioteket",
+	"manual":       "Manuelt registrert",
+}
+
+// sourceLabel returns the full display name for a book's source. Unknown
+// values are returned unchanged so the field never renders empty.
+func sourceLabel(source string) string {
+	if label, ok := sourceLabels[source]; ok {
+		return label
+	}
+	return source
 }
 
 // Renderer renders full pages (wrapped in the shared layout) and standalone

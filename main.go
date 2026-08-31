@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/larskristianhaga/hyllis.no/internal/book"
@@ -21,6 +22,14 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// .env is for local development only (gitignored, never present in the
+	// Docker image or on Fly, which inject real env vars/secrets directly).
+	// A missing file is expected in those environments, so the error is
+	// intentionally ignored rather than failing startup.
+	if err := godotenv.Load(); err == nil {
+		logger.Info("loaded .env")
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {

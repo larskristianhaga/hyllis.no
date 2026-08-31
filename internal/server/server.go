@@ -22,10 +22,15 @@ func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lo
 	mux.HandleFunc("GET /", h.home)
 	mux.HandleFunc("GET /scan", h.scanPage)
 	mux.HandleFunc("GET /library", h.libraryPage)
+	// GET /books is CLAUDE.md's documented "søk/filtrer i eget bibliotek"
+	// route — an alias of /library's handler rather than a separate JSON
+	// API, matching this app's server-rendered-HTML architecture.
+	mux.HandleFunc("GET /books", h.libraryPage)
 	mux.HandleFunc("GET /books/search", h.librarySearch)
 	mux.HandleFunc("GET /books/{id}", h.bookDetail)
 	mux.HandleFunc("POST /books/scan", h.scanSubmit)
 	mux.HandleFunc("POST /books/manual", h.manualSubmit)
+	mux.HandleFunc("DELETE /books/{id}", h.bookDelete)
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
 	mux.HandleFunc("GET /register", h.registerPage)

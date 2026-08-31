@@ -1,18 +1,28 @@
 {{define "library-list"}}
 <section class="library">
   <h1>Bibliotek</h1>
-  <form class="library__search" role="search">
+  <form
+    class="library__search"
+    role="search"
+    hx-get="/books/search"
+    hx-target="#library-results"
+    hx-swap="innerHTML"
+    hx-trigger="keyup changed delay:300ms from:input[name='q'], search from:input[name='q'], change from:select[name='field']">
     <label for="library-search-input">Søk i biblioteket</label>
     <input
       id="library-search-input"
       type="search"
       name="q"
       placeholder="Søk på tittel eller forfatter"
-      autocomplete="off"
-      hx-get="/books/search"
-      hx-target="#library-results"
-      hx-swap="innerHTML"
-      hx-trigger="keyup changed delay:300ms, search">
+      autocomplete="off">
+
+    <label for="library-search-field">Filtrer på</label>
+    <select id="library-search-field" name="field">
+      <option value="all">Tittel og forfatter</option>
+      <option value="title">Tittel</option>
+      <option value="author">Forfatter</option>
+      <option value="publisher">Forlag</option>
+    </select>
   </form>
   <div id="library-results">
     {{template "search-results" .}}

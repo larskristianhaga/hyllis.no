@@ -1,6 +1,12 @@
 {{define "book-detail"}}
 <article class="book-detail">
+  {{if .CoverURL}}
+  <div class="book-detail__cover">
+    <img src="{{.CoverURL}}" alt="Omslag til {{.Title}}" loading="lazy">
+  </div>
+  {{else}}
   <div class="book-detail__cover" aria-hidden="true">{{initial .Title}}</div>
+  {{end}}
   <div class="book-detail__info">
     <h1>{{.Title}}</h1>
     <p class="book-detail__author">{{.Author}}</p>
@@ -10,8 +16,11 @@
       <dt>Lagt til</dt>
       <dd>{{.CreatedAt.Format "02.01.2006"}}</dd>
       <dt>Kilde</dt>
-      <dd>{{.Source}}</dd>
+      <dd>{{sourceLabel .Source}}</dd>
     </dl>
+    <button type="button" class="btn btn-secondary" hx-delete="/books/{{.ID}}" hx-confirm="Slette {{.Title}} fra biblioteket?">
+      Slett bok
+    </button>
   </div>
 </article>
 {{end}}

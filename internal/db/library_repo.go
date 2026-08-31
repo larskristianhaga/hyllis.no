@@ -2,119 +2,140 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/uptrace/bun"
 
 	"github.com/larskristianhaga/hyllis.no/internal/library"
 )
 
 // LibraryRepository is a Postgres-backed implementation of
-// library.Repository.
+// library.Repository, built on the Bun ORM.
 type LibraryRepository struct {
 	db dbtx
 }
 
 // NewLibraryRepository builds a LibraryRepository. db is typically a
-// *pgxpool.Pool in production or a pgx.Tx in tests.
+// *bun.DB in production or a bun.Tx in tests.
 func NewLibraryRepository(db dbtx) *LibraryRepository {
 	return &LibraryRepository{db: db}
 }
 
-const libraryColumns = "id, user_id, book_id, added_at, notes, location"
+// entryModel is Bun's row-mapped view of the library_entries table. See
+// bookModel's doc comment for why this is kept separate from
+// library.Entry.
+type entryModel struct {
+	bun.BaseModel `bun:"table:library_entries"`
 
-func scanEntry(row scanner) (*library.Entry, error) {
-	var e library.Entry
-	var notes, location *string
-	if err := row.Scan(&e.ID, &e.UserID, &e.BookID, &e.AddedAt, &notes, &location); err != nil {
-		return nil, err
+	ID       string       `bun:"id,pk,nullzero,default:gen_random_uuid()"`
+	UserID   string       `bun:"user_id"`
+	BookID   string       `bun:"book_id"`
+	AddedAt  sql.NullTime `bun:"added_at,nullzero,default:now()"`
+	Notes    *string      `bun:"notes"`
+	Location *string      `bun:"location"`
+}
+
+func toEntry(m *entryModel) *library.Entry {
+	e := &library.Entry{
+		ID:     m.ID,
+		UserID: m.UserID,
+		BookID: m.BookID,
 	}
-	if notes != nil {
-		e.Notes = *notes
+	if m.AddedAt.Valid {
+		e.AddedAt = m.AddedAt.Time
 	}
-	if location != nil {
-		e.Location = *location
+	if m.Notes != nil {
+		e.Notes = *m.Notes
 	}
-	return &e, nil
+	if m.Location != nil {
+		e.Location = *m.Location
+	}
+	return e
+}
+
+func fromEntry(e *library.Entry) *entryModel {
+	return &entryModel{
+		ID:       e.ID,
+		UserID:   e.UserID,
+		BookID:   e.BookID,
+		Notes:    nullableString(e.Notes),
+		Location: nullableString(e.Location),
+	}
 }
 
 func (r *LibraryRepository) Create(ctx context.Context, e *library.Entry) error {
-	const q = `INSERT INTO library_entries (user_id, book_id, notes, location)
-	           VALUES ($1, $2, $3, $4)
-	           RETURNING id, added_at`
-	err := r.db.QueryRow(ctx, q, e.UserID, e.BookID, nullableString(e.Notes), nullableString(e.Location)).Scan(&e.ID, &e.AddedAt)
+	m := fromEntry(e)
+	_, err := r.db.NewInsert().Model(m).Returning("id, added_at").Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return library.ErrDuplicateEntry
 		}
 		return fmt.Errorf("db: create library entry: %w", err)
 	}
+	e.ID = m.ID
+	if m.AddedAt.Valid {
+		e.AddedAt = m.AddedAt.Time
+	}
 	return nil
 }
 
 func (r *LibraryRepository) GetByID(ctx context.Context, id string) (*library.Entry, error) {
-	const q = `SELECT ` + libraryColumns + ` FROM library_entries WHERE id = $1`
-	e, err := scanEntry(r.db.QueryRow(ctx, q, id))
+	var m entryModel
+	err := r.db.NewSelect().Model(&m).Where("id = ?", id).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, library.ErrNotFound
 		}
 		return nil, fmt.Errorf("db: get library entry by id: %w", err)
 	}
-	return e, nil
+	return toEntry(&m), nil
 }
 
 func (r *LibraryRepository) GetByUserAndBook(ctx context.Context, userID, bookID string) (*library.Entry, error) {
-	const q = `SELECT ` + libraryColumns + ` FROM library_entries WHERE user_id = $1 AND book_id = $2`
-	e, err := scanEntry(r.db.QueryRow(ctx, q, userID, bookID))
+	var m entryModel
+	err := r.db.NewSelect().Model(&m).Where("user_id = ? AND book_id = ?", userID, bookID).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, library.ErrNotFound
 		}
 		return nil, fmt.Errorf("db: get library entry by user and book: %w", err)
 	}
-	return e, nil
+	return toEntry(&m), nil
 }
 
 func (r *LibraryRepository) ListByUser(ctx context.Context, userID string) ([]*library.Entry, error) {
-	const q = `SELECT ` + libraryColumns + ` FROM library_entries WHERE user_id = $1 ORDER BY added_at DESC`
-	rows, err := r.db.Query(ctx, q, userID)
+	var models []entryModel
+	err := r.db.NewSelect().Model(&models).Where("user_id = ?", userID).OrderExpr("added_at DESC").Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("db: list library entries: %w", err)
 	}
-	defer rows.Close()
-
-	var out []*library.Entry
-	for rows.Next() {
-		e, err := scanEntry(rows)
-		if err != nil {
-			return nil, fmt.Errorf("db: scan library entry: %w", err)
-		}
-		out = append(out, e)
+	out := make([]*library.Entry, 0, len(models))
+	for i := range models {
+		out = append(out, toEntry(&models[i]))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (r *LibraryRepository) Update(ctx context.Context, e *library.Entry) error {
-	const q = `UPDATE library_entries SET notes=$2, location=$3 WHERE id=$1`
-	tag, err := r.db.Exec(ctx, q, e.ID, nullableString(e.Notes), nullableString(e.Location))
+	m := fromEntry(e)
+	res, err := r.db.NewUpdate().Model(m).Column("notes", "location").Where("id = ?", m.ID).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("db: update library entry: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return library.ErrNotFound
 	}
 	return nil
 }
 
 func (r *LibraryRepository) Delete(ctx context.Context, id string) error {
-	const q = `DELETE FROM library_entries WHERE id=$1`
-	tag, err := r.db.Exec(ctx, q, id)
+	res, err := r.db.NewDelete().Model((*entryModel)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("db: delete library entry: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return library.ErrNotFound
 	}
 	return nil

@@ -3,6 +3,7 @@ package book
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,7 @@ func (r *MemoryRepository) List(_ context.Context) ([]*Book, error) {
 		copied := *b
 		out = append(out, &copied)
 	}
+	sortBooksNewestFirst(out)
 	return out, nil
 }
 
@@ -108,7 +110,22 @@ func (r *MemoryRepository) Search(_ context.Context, query string) ([]*Book, err
 			out = append(out, &copied)
 		}
 	}
+	sortBooksNewestFirst(out)
 	return out, nil
+}
+
+// sortBooksNewestFirst orders books by CreatedAt descending, breaking ties
+// on ISBN. Iterating r.books (a map) has randomized order in Go, so without
+// this every List/Search call would return books in a different order —
+// this matches the deterministic "created_at DESC" ordering the
+// Postgres-backed repository uses.
+func sortBooksNewestFirst(books []*Book) {
+	sort.Slice(books, func(i, j int) bool {
+		if !books[i].CreatedAt.Equal(books[j].CreatedAt) {
+			return books[i].CreatedAt.After(books[j].CreatedAt)
+		}
+		return books[i].ISBN < books[j].ISBN
+	})
 }
 
 func (r *MemoryRepository) Update(_ context.Context, b *Book) error {

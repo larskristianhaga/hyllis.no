@@ -28,7 +28,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	// Sanity-check the schema actually landed: pg_trgm active, tables and
 	// the unique constraint present.
 	var trgmEnabled bool
-	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')`).Scan(&trgmEnabled); err != nil {
+	if err := pool.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')`).Scan(&trgmEnabled); err != nil {
 		t.Fatalf("check pg_trgm: %v", err)
 	}
 	if !trgmEnabled {
@@ -37,7 +37,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 
 	for _, table := range []string{"users", "books", "library_entries"} {
 		var exists bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)`, table).Scan(&exists); err != nil {
+		if err := pool.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ?)`, table).Scan(&exists); err != nil {
 			t.Fatalf("check table %s: %v", table, err)
 		}
 		if !exists {
@@ -51,7 +51,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 
 	for _, table := range []string{"users", "books", "library_entries"} {
 		var exists bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)`, table).Scan(&exists); err != nil {
+		if err := pool.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ?)`, table).Scan(&exists); err != nil {
 			t.Fatalf("check table %s: %v", table, err)
 		}
 		if exists {

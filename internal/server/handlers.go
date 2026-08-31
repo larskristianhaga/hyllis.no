@@ -31,6 +31,7 @@ type homeData struct {
 type searchResultsData struct {
 	Books []*book.Book
 	Query string
+	Field string
 }
 
 type scanResultData struct {
@@ -72,9 +73,24 @@ func (h *handlers) scanPage(w http.ResponseWriter, r *http.Request) {
 	h.render.Page(w, r, "scan", nil)
 }
 
+// libraryPage backs both GET /library (the HTMX page) and GET /books (the
+// documented REST route for "søk/filtrer i eget bibliotek" — kept as an
+// alias of the same handler rather than a separate JSON API, matching this
+// app's server-rendered-HTML architecture). Optional "q"/"field" query
+// params filter the initial page load the same way /books/search does.
 func (h *handlers) libraryPage(w http.ResponseWriter, r *http.Request) {
-	books, _ := h.books.List(r.Context())
-	h.render.Page(w, r, "library", searchResultsData{Books: books})
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	field := r.URL.Query().Get("field")
+	if field == "" {
+		field = defaultSearchField
+	}
+
+	books, err := h.filterBooks(r, query, field)
+	if err != nil {
+		h.render.Page(w, r, "library", searchResultsData{Field: field})
+		return
+	}
+	h.render.Page(w, r, "library", searchResultsData{Books: books, Query: query, Field: field})
 }
 
 func (h *handlers) bookDetail(w http.ResponseWriter, r *http.Request) {
@@ -196,30 +212,92 @@ func (h *handlers) saveBook(r *http.Request, b *book.Book) (*book.Book, error) {
 	return b, nil
 }
 
-// librarySearch backs the search-as-you-type input on the library page.
+// defaultSearchField is used when the "field" query param is missing or
+// unrecognized, and matches against title or author — the search's
+// original, pre-option behavior.
+const defaultSearchField = "all"
+
+// searchFieldValue returns the substring of b to match against for the
+// given filter field, per the "field" query param on /books/search.
+func searchFieldValue(b *book.Book, field string) string {
+	switch field {
+	case "title":
+		return b.Title
+	case "author":
+		return b.Author
+	case "publisher":
+		return b.Publisher
+	default:
+		return b.Title + " " + b.Author
+	}
+}
+
+// librarySearch backs the search-as-you-type input on the library page. It
+// filters the user's library by substring match against whichever field
+// the "field" select on the page has chosen (title, author, publisher, or
+// both title+author by default).
 func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	field := r.URL.Query().Get("field")
+	if field == "" {
+		field = defaultSearchField
+	}
 
-	all, err := h.books.List(r.Context())
+	books, err := h.filterBooks(r, query, field)
 	if err != nil {
-		h.render.Partial(w, "search-results", searchResultsData{Query: query})
+		h.render.Partial(w, "search-results", searchResultsData{Query: query, Field: field})
 		return
 	}
 
+	h.render.Partial(w, "search-results", searchResultsData{Books: books, Query: query, Field: field})
+}
+
+// filterBooks lists the caller's library and, if query is non-empty,
+// filters it by substring match against the given field. Shared by
+// libraryPage/GET-books and librarySearch so both honor "q"/"field"
+// identically — search here is always local against h.books (Postgres,
+// once wired up), never an external call, per CLAUDE.md's rule that only
+// the scan endpoint talks to external services.
+func (h *handlers) filterBooks(r *http.Request, query, field string) ([]*book.Book, error) {
+	all, err := h.books.List(r.Context())
+	if err != nil {
+		return nil, err
+	}
 	if query == "" {
-		h.render.Partial(w, "search-results", searchResultsData{Books: all, Query: query})
-		return
+		return all, nil
 	}
 
 	needle := strings.ToLower(query)
 	matches := make([]*book.Book, 0, len(all))
 	for _, b := range all {
-		if strings.Contains(strings.ToLower(b.Title), needle) || strings.Contains(strings.ToLower(b.Author), needle) {
+		if strings.Contains(strings.ToLower(searchFieldValue(b, field)), needle) {
 			matches = append(matches, b)
 		}
 	}
+	return matches, nil
+}
 
-	h.render.Partial(w, "search-results", searchResultsData{Books: matches, Query: query})
+// bookDelete backs DELETE /books/{id}. It's a plain REST action (no HTML
+// fragment to render): 204 on success, 404 if the book doesn't exist, 500
+// on any other repository error. If the request came from htmx (i.e. a
+// delete button on the book detail page), an HX-Redirect back to /library
+// is set so the client navigates away from the now-deleted book's page.
+func (h *handlers) bookDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if err := h.books.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, book.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/library")
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // isValidEAN13 reports whether s looks like an EAN-13 barcode: exactly 13

@@ -2,114 +2,134 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/uptrace/bun"
 
 	"github.com/larskristianhaga/hyllis.no/internal/user"
 )
 
-// UserRepository is a Postgres-backed implementation of user.Repository.
+// UserRepository is a Postgres-backed implementation of user.Repository,
+// built on the Bun ORM.
 type UserRepository struct {
 	db dbtx
 }
 
-// NewUserRepository builds a UserRepository. db is typically a
-// *pgxpool.Pool in production or a pgx.Tx in tests.
+// NewUserRepository builds a UserRepository. db is typically a *bun.DB in
+// production or a bun.Tx in tests.
 func NewUserRepository(db dbtx) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-const userColumns = "id, email, display_name, password_hash, created_at"
+// userModel is Bun's row-mapped view of the users table. See bookModel's
+// doc comment for why this is kept separate from user.User.
+type userModel struct {
+	bun.BaseModel `bun:"table:users"`
 
-func scanUser(row scanner) (*user.User, error) {
-	var u user.User
-	if err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.CreatedAt); err != nil {
-		return nil, err
+	ID           string       `bun:"id,pk,nullzero,default:gen_random_uuid()"`
+	Email        string       `bun:"email"`
+	DisplayName  string       `bun:"display_name"`
+	PasswordHash string       `bun:"password_hash"`
+	CreatedAt    sql.NullTime `bun:"created_at,nullzero,default:now()"`
+}
+
+func toUser(m *userModel) *user.User {
+	u := &user.User{
+		ID:           m.ID,
+		Email:        m.Email,
+		DisplayName:  m.DisplayName,
+		PasswordHash: m.PasswordHash,
 	}
-	return &u, nil
+	if m.CreatedAt.Valid {
+		u.CreatedAt = m.CreatedAt.Time
+	}
+	return u
+}
+
+func fromUser(u *user.User) *userModel {
+	return &userModel{
+		ID:           u.ID,
+		Email:        u.Email,
+		DisplayName:  u.DisplayName,
+		PasswordHash: u.PasswordHash,
+	}
 }
 
 func (r *UserRepository) Create(ctx context.Context, u *user.User) error {
-	const q = `INSERT INTO users (email, display_name, password_hash)
-	           VALUES ($1, $2, $3)
-	           RETURNING id, created_at`
-	err := r.db.QueryRow(ctx, q, u.Email, u.DisplayName, u.PasswordHash).Scan(&u.ID, &u.CreatedAt)
+	m := fromUser(u)
+	_, err := r.db.NewInsert().Model(m).Returning("id, created_at").Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return user.ErrDuplicateEmail
 		}
 		return fmt.Errorf("db: create user: %w", err)
 	}
+	u.ID = m.ID
+	if m.CreatedAt.Valid {
+		u.CreatedAt = m.CreatedAt.Time
+	}
 	return nil
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*user.User, error) {
-	const q = `SELECT ` + userColumns + ` FROM users WHERE id = $1`
-	u, err := scanUser(r.db.QueryRow(ctx, q, id))
+	var m userModel
+	err := r.db.NewSelect().Model(&m).Where("id = ?", id).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, user.ErrNotFound
 		}
 		return nil, fmt.Errorf("db: get user by id: %w", err)
 	}
-	return u, nil
+	return toUser(&m), nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.User, error) {
-	const q = `SELECT ` + userColumns + ` FROM users WHERE email = $1`
-	u, err := scanUser(r.db.QueryRow(ctx, q, email))
+	var m userModel
+	err := r.db.NewSelect().Model(&m).Where("email = ?", email).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, user.ErrNotFound
 		}
 		return nil, fmt.Errorf("db: get user by email: %w", err)
 	}
-	return u, nil
+	return toUser(&m), nil
 }
 
 func (r *UserRepository) List(ctx context.Context) ([]*user.User, error) {
-	const q = `SELECT ` + userColumns + ` FROM users ORDER BY created_at DESC`
-	rows, err := r.db.Query(ctx, q)
-	if err != nil {
+	var models []userModel
+	if err := r.db.NewSelect().Model(&models).OrderExpr("created_at DESC").Scan(ctx); err != nil {
 		return nil, fmt.Errorf("db: list users: %w", err)
 	}
-	defer rows.Close()
-
-	var out []*user.User
-	for rows.Next() {
-		u, err := scanUser(rows)
-		if err != nil {
-			return nil, fmt.Errorf("db: scan user: %w", err)
-		}
-		out = append(out, u)
+	out := make([]*user.User, 0, len(models))
+	for i := range models {
+		out = append(out, toUser(&models[i]))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, u *user.User) error {
-	const q = `UPDATE users SET email=$2, display_name=$3, password_hash=$4 WHERE id=$1`
-	tag, err := r.db.Exec(ctx, q, u.ID, u.Email, u.DisplayName, u.PasswordHash)
+	m := fromUser(u)
+	res, err := r.db.NewUpdate().Model(m).Column("email", "display_name", "password_hash").Where("id = ?", m.ID).Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return user.ErrDuplicateEmail
 		}
 		return fmt.Errorf("db: update user: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return user.ErrNotFound
 	}
 	return nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	const q = `DELETE FROM users WHERE id=$1`
-	tag, err := r.db.Exec(ctx, q, id)
+	res, err := r.db.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("db: delete user: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return user.ErrNotFound
 	}
 	return nil
