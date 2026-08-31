@@ -7,9 +7,13 @@ import "time"
 // Book is the shared domain representation of a book.
 type Book struct {
 	ID        string
+	ISBN      string
 	Title     string
 	Author    string
-	ISBN      string
+	Publisher string
+	Year      int
+	CoverURL  string
+	Language  string
+	Pages     int
 	CreatedAt time.Time
-	UpdatedAt time.Time
 }

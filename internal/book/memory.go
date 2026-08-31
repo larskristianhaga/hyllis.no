@@ -3,6 +3,7 @@ package book
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,10 +46,23 @@ func (r *MemoryRepository) GetByID(_ context.Context, id string) (*Book, error) 
 
 	b, ok := r.books[id]
 	if !ok {
-		return nil, fmt.Errorf("book with id %q not found", id)
+		return nil, fmt.Errorf("%w: id %q", ErrNotFound, id)
 	}
 	copied := *b
 	return &copied, nil
+}
+
+func (r *MemoryRepository) GetByISBN(_ context.Context, isbn string) (*Book, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, b := range r.books {
+		if b.ISBN == isbn {
+			copied := *b
+			return &copied, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: isbn %q", ErrNotFound, isbn)
 }
 
 func (r *MemoryRepository) List(_ context.Context) ([]*Book, error) {
@@ -63,12 +77,30 @@ func (r *MemoryRepository) List(_ context.Context) ([]*Book, error) {
 	return out, nil
 }
 
+// Search returns books whose title or author contains query, matched
+// case-insensitively. It's a simple substring stand-in for the trigram
+// similarity search the Postgres-backed repository performs.
+func (r *MemoryRepository) Search(_ context.Context, query string) ([]*Book, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	needle := strings.ToLower(query)
+	out := make([]*Book, 0, len(r.books))
+	for _, b := range r.books {
+		if strings.Contains(strings.ToLower(b.Title), needle) || strings.Contains(strings.ToLower(b.Author), needle) {
+			copied := *b
+			out = append(out, &copied)
+		}
+	}
+	return out, nil
+}
+
 func (r *MemoryRepository) Update(_ context.Context, b *Book) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.books[b.ID]; !exists {
-		return fmt.Errorf("book with id %q not found", b.ID)
+		return fmt.Errorf("%w: id %q", ErrNotFound, b.ID)
 	}
 	copied := *b
 	r.books[b.ID] = &copied
@@ -80,7 +112,7 @@ func (r *MemoryRepository) Delete(_ context.Context, id string) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.books[id]; !exists {
-		return fmt.Errorf("book with id %q not found", id)
+		return fmt.Errorf("%w: id %q", ErrNotFound, id)
 	}
 	delete(r.books, id)
 	return nil
@@ -96,19 +128,18 @@ func SeedBooks() []*Book {
 	}
 
 	books := []*Book{
-		{ISBN: "9788203293176", Title: "Sult", Author: "Knut Hamsun", CreatedAt: day(2025, time.January, 12)},
-		{ISBN: "9788203365117", Title: "Fuglane", Author: "Tarjei Vesaas", CreatedAt: day(2025, time.February, 3)},
-		{ISBN: "9780143127550", Title: "The Hobbit", Author: "J.R.R. Tolkien", CreatedAt: day(2025, time.March, 21)},
-		{ISBN: "9780451524935", Title: "1984", Author: "George Orwell", CreatedAt: day(2025, time.April, 9)},
-		{ISBN: "9780061120084", Title: "To Kill a Mockingbird", Author: "Harper Lee", CreatedAt: day(2025, time.May, 17)},
-		{ISBN: "9780544003415", Title: "The Lord of the Rings", Author: "J.R.R. Tolkien", CreatedAt: day(2025, time.June, 30)},
-		{ISBN: "9788205442104", Title: "Bikubesong", Author: "Frode Grytten", CreatedAt: day(2025, time.July, 22)},
-		{ISBN: "9780316769488", Title: "The Catcher in the Rye", Author: "J.D. Salinger", CreatedAt: day(2025, time.August, 14)},
+		{ISBN: "9788203293176", Title: "Sult", Author: "Knut Hamsun", Publisher: "Gyldendal", Year: 1890, Language: "no", Pages: 224, CreatedAt: day(2025, time.January, 12)},
+		{ISBN: "9788203365117", Title: "Fuglane", Author: "Tarjei Vesaas", Publisher: "Gyldendal", Year: 1957, Language: "no", Pages: 224, CreatedAt: day(2025, time.February, 3)},
+		{ISBN: "9780143127550", Title: "The Hobbit", Author: "J.R.R. Tolkien", Publisher: "Penguin Classics", Year: 1937, Language: "en", Pages: 310, CreatedAt: day(2025, time.March, 21)},
+		{ISBN: "9780451524935", Title: "1984", Author: "George Orwell", Publisher: "Signet Classics", Year: 1949, Language: "en", Pages: 328, CreatedAt: day(2025, time.April, 9)},
+		{ISBN: "9780061120084", Title: "To Kill a Mockingbird", Author: "Harper Lee", Publisher: "Harper Perennial", Year: 1960, Language: "en", Pages: 336, CreatedAt: day(2025, time.May, 17)},
+		{ISBN: "9780544003415", Title: "The Lord of the Rings", Author: "J.R.R. Tolkien", Publisher: "Houghton Mifflin", Year: 1954, Language: "en", Pages: 1178, CreatedAt: day(2025, time.June, 30)},
+		{ISBN: "9788205442104", Title: "Bikubesong", Author: "Frode Grytten", Publisher: "Cappelen Damm", Year: 1999, Language: "no", Pages: 256, CreatedAt: day(2025, time.July, 22)},
+		{ISBN: "9780316769488", Title: "The Catcher in the Rye", Author: "J.D. Salinger", Publisher: "Little, Brown and Company", Year: 1951, Language: "en", Pages: 224, CreatedAt: day(2025, time.August, 14)},
 	}
 
 	for _, b := range books {
 		b.ID = b.ISBN
-		b.UpdatedAt = b.CreatedAt
 	}
 	return books
 }
