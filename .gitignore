@@ -15,9 +15,6 @@
 go.work
 go.work.sum
 
-# env file
-.env
-
 # Editor directories and files
 .idea
 
