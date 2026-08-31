@@ -11,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/larskristianhaga/hyllis.no/internal/book"
 	"github.com/larskristianhaga/hyllis.no/internal/server"
+	"github.com/larskristianhaga/hyllis.no/internal/web"
 )
 
 func main() {
@@ -22,7 +24,15 @@ func main() {
 		port = "8080"
 	}
 
-	srv := server.New(":" + port)
+	render, err := web.New()
+	if err != nil {
+		logger.Error("failed to build template renderer", "error", err)
+		os.Exit(1)
+	}
+
+	books := book.NewMemoryRepository(book.SeedBooks())
+
+	srv := server.New(":"+port, render, books)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

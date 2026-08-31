@@ -1,0 +1,21 @@
+{{define "library-list"}}
+<section class="library">
+  <h1>Bibliotek</h1>
+  <form class="library__search" role="search">
+    <label for="library-search-input">Søk i biblioteket</label>
+    <input
+      id="library-search-input"
+      type="search"
+      name="q"
+      placeholder="Søk på tittel eller forfatter"
+      autocomplete="off"
+      hx-get="/books/search"
+      hx-target="#library-results"
+      hx-swap="innerHTML"
+      hx-trigger="keyup changed delay:300ms, search">
+  </form>
+  <div id="library-results">
+    {{template "search-results" .}}
+  </div>
+</section>
+{{end}}

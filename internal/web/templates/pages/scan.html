@@ -1,0 +1,33 @@
+{{define "page"}}
+<section class="scan">
+  <h1>Skann bok</h1>
+  <p>Rett kameraet mot strekkoden (EAN-13) på boken.</p>
+
+  <div class="camera-viewport">
+    <div id="reader"></div>
+    <button id="torch-toggle" type="button" class="btn btn-secondary" hidden aria-pressed="false">
+      Lommelykt på
+    </button>
+  </div>
+
+  <div id="scan-result" aria-live="polite"></div>
+
+  <details class="manual-fallback" open>
+    <summary>Manuell registrering</summary>
+    <form class="manual-isbn-form" hx-post="/books/scan" hx-target="#scan-result" hx-swap="innerHTML">
+      <label for="isbn-input">ISBN (13 siffer)</label>
+      <input
+        id="isbn-input"
+        name="isbn"
+        inputmode="numeric"
+        pattern="[0-9]{13}"
+        maxlength="13"
+        placeholder="9780143127550"
+        required>
+      <button type="submit" class="btn btn-primary">Slå opp</button>
+    </form>
+  </details>
+</section>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/static/js/scanner.js"></script>
+{{end}}

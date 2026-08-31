@@ -1,0 +1,22 @@
+{{define "page"}}
+<section class="auth-form">
+  <h1>Registrer deg</h1>
+  {{if .Message}}{{template "error-message" .}}{{end}}
+  <form method="post" action="/register">
+    <label for="register-name">Navn</label>
+    <input id="register-name" name="name" type="text" autocomplete="name" required>
+
+    <label for="register-email">E-post</label>
+    <input id="register-email" name="email" type="email" autocomplete="email" required>
+
+    <label for="register-password">Passord</label>
+    <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+
+    <label for="register-password-confirm">Bekreft passord</label>
+    <input id="register-password-confirm" name="password_confirm" type="password" autocomplete="new-password" required>
+
+    <button type="submit" class="btn btn-primary">Registrer</button>
+  </form>
+  <p class="auth-form__switch">Har du allerede en konto? <a href="/login">Logg inn</a></p>
+</section>
+{{end}}

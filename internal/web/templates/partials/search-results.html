@@ -1,0 +1,11 @@
+{{define "search-results"}}
+{{if .Books}}
+<div class="book-grid">
+  {{range .Books}}{{template "book-card" .}}{{end}}
+</div>
+{{else}}
+<div class="error-message" role="status">
+  <p>{{if .Query}}Ingen bøker matcher «{{.Query}}».{{else}}Ingen bøker i biblioteket ennå.{{end}}</p>
+</div>
+{{end}}
+{{end}}

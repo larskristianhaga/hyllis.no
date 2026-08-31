@@ -1,0 +1,18 @@
+{{define "page"}}
+<section class="hero">
+  <h1>Velkommen til hyllis</h1>
+  <p>Skann bøkene dine og bygg biblioteket ditt.</p>
+  <div class="hero__actions">
+    <a class="btn btn-primary" href="/scan">Skann en bok</a>
+    <a class="btn btn-secondary" href="/library">Se biblioteket</a>
+  </div>
+</section>
+{{if .Books}}
+<section class="home-recent">
+  <h2>Nylig lagt til</h2>
+  <div class="book-grid">
+    {{range .Books}}{{template "book-card" .}}{{end}}
+  </div>
+</section>
+{{end}}
+{{end}}

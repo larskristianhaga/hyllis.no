@@ -1,0 +1,7 @@
+{{define "page"}}
+{{if .Book}}
+{{template "book-detail" .Book}}
+{{else}}
+{{template "error-message" .}}
+{{end}}
+{{end}}

@@ -1,0 +1,15 @@
+{{define "book-detail"}}
+<article class="book-detail">
+  <div class="book-detail__cover" aria-hidden="true">{{initial .Title}}</div>
+  <div class="book-detail__info">
+    <h1>{{.Title}}</h1>
+    <p class="book-detail__author">{{.Author}}</p>
+    <dl class="book-detail__meta">
+      <dt>ISBN</dt>
+      <dd>{{.ISBN}}</dd>
+      <dt>Lagt til</dt>
+      <dd>{{.CreatedAt.Format "02.01.2006"}}</dd>
+    </dl>
+  </div>
+</article>
+{{end}}

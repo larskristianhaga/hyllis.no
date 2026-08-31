@@ -1,0 +1,29 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>hyllis</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <script src="https://unpkg.com/htmx.org@2.0.9"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__bar">
+      <a class="site-brand" href="/">📚 hyllis</a>
+      <nav class="site-nav" aria-label="Hovednavigasjon">
+        <a href="/">Hjem</a>
+        <a href="/scan">Skann</a>
+        <a href="/library">Bibliotek</a>
+        <a href="/login">Logg inn</a>
+        <a href="/register">Registrer</a>
+      </nav>
+    </div>
+  </header>
+  <main id="content" class="content">
+    {{template "page" .}}
+  </main>
+</body>
+</html>
+{{end}}

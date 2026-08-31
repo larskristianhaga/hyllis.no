@@ -1,0 +1,10 @@
+{{define "book-card"}}
+<a class="book-card" href="/books/{{.ID}}">
+  <div class="book-card__cover" aria-hidden="true">{{initial .Title}}</div>
+  <div class="book-card__body">
+    <h3 class="book-card__title">{{.Title}}</h3>
+    <p class="book-card__author">{{.Author}}</p>
+    <p class="book-card__isbn">ISBN {{.ISBN}}</p>
+  </div>
+</a>
+{{end}}

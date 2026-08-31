@@ -1,0 +1,16 @@
+{{define "page"}}
+<section class="auth-form">
+  <h1>Logg inn</h1>
+  {{if .Message}}{{template "error-message" .}}{{end}}
+  <form method="post" action="/login">
+    <label for="login-email">E-post</label>
+    <input id="login-email" name="email" type="email" autocomplete="email" required>
+
+    <label for="login-password">Passord</label>
+    <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+
+    <button type="submit" class="btn btn-primary">Logg inn</button>
+  </form>
+  <p class="auth-form__switch">Ny her? <a href="/register">Registrer deg</a></p>
+</section>
+{{end}}
