@@ -59,6 +59,7 @@ func NewService(cache Cache, providers []Provider, log *slog.Logger) *Service {
 // resolves the ISBN, Resolve returns ErrNotFound.
 func (s *Service) Resolve(ctx context.Context, isbn string) (*book.Book, error) {
 	if b, err := s.cache.Get(ctx, isbn); err == nil {
+		s.log.Info("lookup: resolved", "source", "cache", "isbn", isbn)
 		return b, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		s.log.Warn("lookup: cache get failed, falling through to providers", "isbn", isbn, "error", err)
@@ -74,11 +75,13 @@ func (s *Service) Resolve(ctx context.Context, isbn string) (*book.Book, error) 
 		}
 
 		b.Source = p.Name()
+		s.log.Info("lookup: resolved", "source", p.Name(), "isbn", isbn, "title", b.Title)
 		if err := s.cache.Set(ctx, isbn, b); err != nil {
 			s.log.Warn("lookup: cache set failed", "isbn", isbn, "error", err)
 		}
 		return b, nil
 	}
 
+	s.log.Info("lookup: no provider resolved isbn", "isbn", isbn)
 	return nil, ErrNotFound
 }
