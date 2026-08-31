@@ -43,7 +43,7 @@
       .ajax("POST", "/books/scan", {
         target: RESULT_SELECTOR,
         swap: "innerHTML",
-        values: { isbn: code },
+        values: { isbn: code, source: "camera" },
       })
       .finally(resumeScanning);
   }

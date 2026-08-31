@@ -2,6 +2,7 @@
 package server
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 )
 
 // New builds an *http.Server listening on addr with all routes registered.
-func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lookup.Service) *http.Server {
-	h := newHandlers(render, books, lookupSvc)
+func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lookup.Service, log *slog.Logger) *http.Server {
+	h := newHandlers(render, books, lookupSvc, log)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)

@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/larskristianhaga/hyllis.no/internal/book"
+	"github.com/larskristianhaga/hyllis.no/internal/db"
 	"github.com/larskristianhaga/hyllis.no/internal/lookup"
 	"github.com/larskristianhaga/hyllis.no/internal/server"
 	"github.com/larskristianhaga/hyllis.no/internal/web"
@@ -42,7 +43,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	books := book.NewMemoryRepository(book.SeedBooks())
+	books, closeBooks, err := newBookRepository(context.Background(), logger)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer closeBooks()
 
 	cache, err := newISBNCache(context.Background(), logger)
 	if err != nil {
@@ -56,7 +62,7 @@ func main() {
 		lookup.NewNBProvider(),
 	}, logger)
 
-	srv := server.New(":"+port, render, books, lookupSvc)
+	srv := server.New(":"+port, render, books, lookupSvc, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -82,6 +88,34 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+// newBookRepository builds the book.Repository from DATABASE_URL. If it's
+// unset (e.g. local development without Postgres configured), it logs a
+// warning and falls back to an in-memory repository seeded with mock data —
+// mirroring newISBNCache's REDIS_URL fallback below — so the app still
+// serves, just without persistence. If DATABASE_URL is set but unreachable,
+// that's a misconfiguration and startup fails fast (db.NewPool pings on
+// connect). The returned close func releases the underlying connection pool
+// and is a no-op for the in-memory fallback.
+func newBookRepository(ctx context.Context, logger *slog.Logger) (book.Repository, func(), error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		logger.Warn("DATABASE_URL not set, using in-memory book repository (data will not persist)")
+		return book.NewMemoryRepository(book.SeedBooks()), func() {}, nil
+	}
+
+	pool, err := db.NewPool(ctx, dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	closePool := func() {
+		if err := db.Close(pool); err != nil {
+			logger.Error("failed to close database pool", "error", err)
+		}
+	}
+	return db.NewBookRepository(pool), closePool, nil
 }
 
 // newISBNCache builds the ISBN lookup cache from REDIS_URL. If it's unset

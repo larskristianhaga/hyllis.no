@@ -13,15 +13,21 @@
       id="library-search-input"
       type="search"
       name="q"
-      placeholder="Søk på tittel eller forfatter"
+      placeholder="Søk på tittel, forfatter eller forlag"
       autocomplete="off">
 
-    <label for="library-search-field">Filtrer på</label>
+    <!--
+      This select is a display-only visibility filter — it narrows which of
+      the already-(fuzzy-)matched books above are shown, based on whether
+      they have something set in the chosen field. It has no effect on what
+      "q" matches against; see handlers.filterBooks/passesFieldFilter.
+    -->
+    <label for="library-search-field">Vis kun bøker med</label>
     <select id="library-search-field" name="field">
-      <option value="all">Tittel og forfatter</option>
-      <option value="title">Tittel</option>
-      <option value="author">Forfatter</option>
-      <option value="publisher">Forlag</option>
+      <option value="all">Alle treff</option>
+      <option value="title">Registrert tittel</option>
+      <option value="author">Registrert forfatter</option>
+      <option value="publisher">Registrert forlag</option>
     </select>
   </form>
   <div id="library-results">

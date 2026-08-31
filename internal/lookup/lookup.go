@@ -66,15 +66,19 @@ func (s *Service) Resolve(ctx context.Context, isbn string) (*book.Book, error) 
 	}
 
 	for _, p := range s.providers {
+		s.log.Info("lookup: trying provider", "provider", p.Name(), "isbn", isbn)
 		b, err := p.Lookup(ctx, isbn)
 		if err != nil {
-			if !errors.Is(err, ErrNotFound) {
-				s.log.Warn("lookup: provider failed, trying next", "provider", p.Name(), "isbn", isbn, "error", err)
+			if errors.Is(err, ErrNotFound) {
+				s.log.Info("lookup: provider response", "provider", p.Name(), "isbn", isbn, "result", "not_found")
+			} else {
+				s.log.Warn("lookup: provider response", "provider", p.Name(), "isbn", isbn, "result", "error", "error", err)
 			}
 			continue
 		}
 
 		b.Source = p.Name()
+		s.log.Info("lookup: provider response", "provider", p.Name(), "isbn", isbn, "result", "hit", "title", b.Title)
 		s.log.Info("lookup: resolved", "source", p.Name(), "isbn", isbn, "title", b.Title)
 		if err := s.cache.Set(ctx, isbn, b); err != nil {
 			s.log.Warn("lookup: cache set failed", "isbn", isbn, "error", err)

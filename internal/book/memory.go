@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/larskristianhaga/hyllis.no/internal/fuzzy"
 )
 
 // MemoryRepository is an in-memory Repository implementation. It exists for
@@ -95,17 +96,17 @@ func (r *MemoryRepository) List(_ context.Context) ([]*Book, error) {
 	return out, nil
 }
 
-// Search returns books whose title or author contains query, matched
-// case-insensitively. It's a simple substring stand-in for the trigram
-// similarity search the Postgres-backed repository performs.
+// Search returns books whose title or author fuzzily (typo-tolerantly)
+// matches query, case-insensitively — see internal/fuzzy. It's a
+// dependency-free stand-in for the trigram similarity search the
+// Postgres-backed repository performs.
 func (r *MemoryRepository) Search(_ context.Context, query string) ([]*Book, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	needle := strings.ToLower(query)
 	out := make([]*Book, 0, len(r.books))
 	for _, b := range r.books {
-		if strings.Contains(strings.ToLower(b.Title), needle) || strings.Contains(strings.ToLower(b.Author), needle) {
+		if fuzzy.Match(b.Title+" "+b.Author, query) {
 			copied := *b
 			out = append(out, &copied)
 		}

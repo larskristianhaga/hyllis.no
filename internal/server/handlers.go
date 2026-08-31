@@ -2,11 +2,13 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/larskristianhaga/hyllis.no/internal/book"
+	"github.com/larskristianhaga/hyllis.no/internal/fuzzy"
 	"github.com/larskristianhaga/hyllis.no/internal/lookup"
 	"github.com/larskristianhaga/hyllis.no/internal/web"
 )
@@ -18,6 +20,7 @@ type handlers struct {
 	render *web.Renderer
 	books  book.Repository
 	lookup *lookup.Service
+	log    *slog.Logger
 }
 
 // homeRecentLimit caps how many books the home page's "recently added"
@@ -51,8 +54,8 @@ type manualEntryFormData struct {
 	ISBN string
 }
 
-func newHandlers(render *web.Renderer, books book.Repository, lookupSvc *lookup.Service) *handlers {
-	return &handlers{render: render, books: books, lookup: lookupSvc}
+func newHandlers(render *web.Renderer, books book.Repository, lookupSvc *lookup.Service, log *slog.Logger) *handlers {
+	return &handlers{render: render, books: books, lookup: lookupSvc, log: log}
 }
 
 // --- full pages ------------------------------------------------------
@@ -137,6 +140,18 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isbn := strings.TrimSpace(r.FormValue("isbn"))
+
+	source := r.FormValue("source")
+	if source == "" {
+		source = "manual"
+	}
+	switch source {
+	case "camera":
+		h.log.Info("scan: isbn detected by camera", "isbn", isbn)
+	default:
+		h.log.Info("scan: isbn typed manually and submitted", "isbn", isbn)
+	}
+
 	if !isValidEAN13(isbn) {
 		h.render.Partial(w, "error-message", errorMessageData{
 			Message: "Ugyldig ISBN/EAN-13-kode. Koden må bestå av 13 siffer.",
@@ -213,29 +228,14 @@ func (h *handlers) saveBook(r *http.Request, b *book.Book) (*book.Book, error) {
 }
 
 // defaultSearchField is used when the "field" query param is missing or
-// unrecognized, and matches against title or author — the search's
-// original, pre-option behavior.
+// unrecognized. It shows every book that matched the search query — see
+// passesFieldFilter.
 const defaultSearchField = "all"
 
-// searchFieldValue returns the substring of b to match against for the
-// given filter field, per the "field" query param on /books/search.
-func searchFieldValue(b *book.Book, field string) string {
-	switch field {
-	case "title":
-		return b.Title
-	case "author":
-		return b.Author
-	case "publisher":
-		return b.Publisher
-	default:
-		return b.Title + " " + b.Author
-	}
-}
-
-// librarySearch backs the search-as-you-type input on the library page. It
-// filters the user's library by substring match against whichever field
-// the "field" select on the page has chosen (title, author, publisher, or
-// both title+author by default).
+// librarySearch backs the search-as-you-type input on the library page. "q"
+// fuzzily matches across title, author, and publisher together; the
+// "field" select is unrelated to that match — it's a separate, purely
+// cosmetic display filter, see filterBooks.
 func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	field := r.URL.Query().Get("field")
@@ -252,9 +252,13 @@ func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
 	h.render.Partial(w, "search-results", searchResultsData{Books: books, Query: query, Field: field})
 }
 
-// filterBooks lists the caller's library and, if query is non-empty,
-// filters it by substring match against the given field. Shared by
-// libraryPage/GET-books and librarySearch so both honor "q"/"field"
+// filterBooks lists the caller's library and, if query is non-empty, keeps
+// only books that fuzzily match it (typo-tolerant, matched across title,
+// author, and publisher together — see internal/fuzzy). field is then
+// applied as a wholly separate, display-only visibility filter via
+// passesFieldFilter: it narrows which of the already-matched books are
+// shown, but never affects what the query itself matches against. Shared
+// by libraryPage/GET-books and librarySearch so both honor "q"/"field"
 // identically — search here is always local against h.books (Postgres,
 // once wired up), never an external call, per CLAUDE.md's rule that only
 // the scan endpoint talks to external services.
@@ -263,18 +267,37 @@ func (h *handlers) filterBooks(r *http.Request, query, field string) ([]*book.Bo
 	if err != nil {
 		return nil, err
 	}
-	if query == "" {
-		return all, nil
-	}
 
-	needle := strings.ToLower(query)
 	matches := make([]*book.Book, 0, len(all))
 	for _, b := range all {
-		if strings.Contains(strings.ToLower(searchFieldValue(b, field)), needle) {
-			matches = append(matches, b)
+		if query != "" && !fuzzy.Match(b.Title+" "+b.Author+" "+b.Publisher, query) {
+			continue
 		}
+		if !passesFieldFilter(b, field) {
+			continue
+		}
+		matches = append(matches, b)
 	}
 	return matches, nil
+}
+
+// passesFieldFilter reports whether b should be visible under the "field"
+// filter chosen on the library page. This is purely a display concern: it
+// decides which already-matched books are shown (those with something set
+// in the chosen field) and has nothing to do with the "q" search above —
+// the two are intentionally independent, per this app's filter-vs-search
+// separation.
+func passesFieldFilter(b *book.Book, field string) bool {
+	switch field {
+	case "title":
+		return b.Title != ""
+	case "author":
+		return b.Author != ""
+	case "publisher":
+		return b.Publisher != ""
+	default:
+		return true
+	}
 }
 
 // bookDelete backs DELETE /books/{id}. It's a plain REST action (no HTML

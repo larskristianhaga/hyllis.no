@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"testing"
+
+	"github.com/uptrace/bun/migrate"
 )
 
 // TestMigrationsUpAndDown exercises the acceptance criterion that
@@ -21,7 +23,15 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	}
 	defer cleanup()
 
-	if err := applyUpMigrations(ctx, pool); err != nil {
+	migrator := migrate.NewMigrator(pool, Migrations)
+	if err := migrator.Init(ctx); err != nil {
+		t.Fatalf("init migrator: %v", err)
+	}
+
+	// All 5 migrations are unapplied, so this single Migrate call applies
+	// them as one group — which is what lets the single Rollback call below
+	// undo all of them together, rather than just the most recent one.
+	if _, err := migrator.Migrate(ctx); err != nil {
 		t.Fatalf("apply up migrations: %v", err)
 	}
 
@@ -45,7 +55,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 		}
 	}
 
-	if err := applyDownMigrations(ctx, pool); err != nil {
+	if _, err := migrator.Rollback(ctx); err != nil {
 		t.Fatalf("apply down migrations: %v", err)
 	}
 

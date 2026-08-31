@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"testing"
 
 	"github.com/jackc/pgx/v5/stdlib"
@@ -15,9 +13,6 @@ import (
 
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
-
-// migrationsDir is relative to this package's directory (internal/db).
-const migrationsDir = "../../migrations"
 
 // testDB is a shared Bun handle, backed by a single Postgres testcontainer
 // with every migration applied, used by all repository tests in this
@@ -45,7 +40,7 @@ func runTests(m *testing.M) int {
 	}
 	defer cleanup()
 
-	if err := applyUpMigrations(ctx, db); err != nil {
+	if err := RunMigrations(ctx, db); err != nil {
 		fmt.Fprintln(os.Stderr, "db: apply migrations:", err)
 		return 1
 	}
@@ -88,64 +83,6 @@ func startPostgres(ctx context.Context) (*bun.DB, func(), error) {
 		_ = container.Terminate(ctx)
 	}
 	return db, cleanup, nil
-}
-
-// migrationFiles returns migration files matching pattern (e.g. "*.up.sql"),
-// sorted lexicographically so numbered pairs apply in order.
-func migrationFiles(pattern string) ([]string, error) {
-	files, err := filepath.Glob(filepath.Join(migrationsDir, pattern))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
-	return files, nil
-}
-
-func applyUpMigrations(ctx context.Context, db *bun.DB) error {
-	files, err := migrationFiles("*.up.sql")
-	if err != nil {
-		return err
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no .up.sql files found under %s", migrationsDir)
-	}
-	for _, f := range files {
-		if err := execSQLFile(ctx, db, f); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// applyDownMigrations runs every .down.sql file in reverse order (undoing
-// the most recent migration first), mirroring how `migrate ... down` walks
-// the migration chain backwards.
-func applyDownMigrations(ctx context.Context, db *bun.DB) error {
-	files, err := migrationFiles("*.down.sql")
-	if err != nil {
-		return err
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no .down.sql files found under %s", migrationsDir)
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(files)))
-	for _, f := range files {
-		if err := execSQLFile(ctx, db, f); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func execSQLFile(ctx context.Context, db *bun.DB, path string) error {
-	sql, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	if _, err := db.ExecContext(ctx, string(sql)); err != nil {
-		return fmt.Errorf("exec %s: %w", path, err)
-	}
-	return nil
 }
 
 // openBun connects to dsn via pgx's database/sql driver (forcing the simple
