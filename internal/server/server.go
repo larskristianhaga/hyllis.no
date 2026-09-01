@@ -21,6 +21,7 @@ func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lo
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(render.StaticFS())))
 
 	mux.HandleFunc("GET /", h.home)
+	mux.HandleFunc("GET /service-worker.js", h.serviceWorker)
 	mux.HandleFunc("GET /scan", h.scanPage)
 	mux.HandleFunc("GET /library", h.libraryPage)
 	// GET /books is CLAUDE.md's documented "søk/filtrer i eget bibliotek"
