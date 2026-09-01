@@ -1,10 +1,11 @@
 {{define "page"}}
 <section class="hero">
-  <h1>Velkommen til hyllis</h1>
-  <p>Skann bøkene dine og bygg biblioteket ditt.</p>
+  <span class="hero__decor" aria-hidden="true">📚</span>
+  <h1>hyllis</h1>
+  <p class="hero__tagline">Skann. Lagre. Finn igjen. Din egen bokhylle, alltid tilgjengelig.</p>
   <div class="hero__actions">
-    <a class="btn btn-primary" href="/scan">Skann en bok</a>
-    <a class="btn btn-secondary" href="/library">Se biblioteket</a>
+    <a class="btn btn-primary" href="/scan">📷 Skann en bok</a>
+    <a class="btn btn-secondary" href="/library">📖 Se biblioteket</a>
   </div>
 </section>
 {{if .Books}}
@@ -12,6 +13,24 @@
   <h2>Nylig lagt til</h2>
   <div class="book-grid">
     {{range .Books}}{{template "book-card" .}}{{end}}
+  </div>
+</section>
+{{else}}
+<section class="home-features">
+  <div class="feature-card">
+    <span class="feature-card__icon" aria-hidden="true">📷</span>
+    <h3>Skann strekkoden</h3>
+    <p>Bruk kameraet til å skanne ISBN-koden — ingen manuell inntasting nødvendig.</p>
+  </div>
+  <div class="feature-card">
+    <span class="feature-card__icon" aria-hidden="true">✨</span>
+    <h3>Automatisk oppslag</h3>
+    <p>Vi finner tittel, forfatter og omslag for deg — norske og engelske bøker.</p>
+  </div>
+  <div class="feature-card">
+    <span class="feature-card__icon" aria-hidden="true">🔍</span>
+    <h3>Søk og filtrer</h3>
+    <p>Finn boken du leter etter på sekundet, selv med skrivefeil.</p>
   </div>
 </section>
 {{end}}
