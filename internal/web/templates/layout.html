@@ -14,15 +14,21 @@
       <a class="site-brand" href="/">📚 hyllis</a>
       <nav class="site-nav" aria-label="Hovednavigasjon">
         <a href="/">Hjem</a>
+        {{if .Authenticated}}
         <a href="/scan">Skann</a>
         <a href="/library">Bibliotek</a>
+        <form method="post" action="/logout" class="site-nav__logout">
+          <button type="submit" class="link-button">Logg ut</button>
+        </form>
+        {{else}}
         <a href="/login">Logg inn</a>
         <a href="/register">Registrer</a>
+        {{end}}
       </nav>
     </div>
   </header>
   <main id="content" class="content">
-    {{template "page" .}}
+    {{template "page" .Page}}
   </main>
 </body>
 </html>

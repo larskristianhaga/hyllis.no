@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+
+	"github.com/larskristianhaga/hyllis.no/internal/auth"
 )
 
 //go:embed templates
@@ -108,6 +110,16 @@ func (rd *Renderer) Page(w http.ResponseWriter, r *http.Request, name string, da
 	return rd.PageWithStatus(w, r, name, http.StatusOK, data)
 }
 
+// layoutData wraps a page's own data with the auth state layout.html needs
+// to decide whether to show the login/register links or a logout button —
+// kept separate from every page's data struct so handlers don't each need
+// their own Authenticated field (see homeData's, which predates this and is
+// now redundant but harmless).
+type layoutData struct {
+	Authenticated bool
+	Page          any
+}
+
 // PageWithStatus renders the named page like Page, but with an explicit
 // status code (e.g. 404 for a missing book). The status must be set before
 // any header is written, so callers should not call w.WriteHeader
@@ -124,7 +136,8 @@ func (rd *Renderer) PageWithStatus(w http.ResponseWriter, r *http.Request, name 
 	if isHTMXRequest(r) {
 		return tmpl.ExecuteTemplate(w, "page", data)
 	}
-	return tmpl.ExecuteTemplate(w, "layout", data)
+	_, authenticated := auth.UserFromContext(r.Context())
+	return tmpl.ExecuteTemplate(w, "layout", layoutData{Authenticated: authenticated, Page: data})
 }
 
 // Partial renders the named partial directly, with no layout wrapper. It is

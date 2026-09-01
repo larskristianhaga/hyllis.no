@@ -33,8 +33,7 @@ type handlers struct {
 const homeRecentLimit = 4
 
 type homeData struct {
-	Books         []*book.Book
-	Authenticated bool
+	Books []*book.Book
 }
 
 type searchResultsData struct {
@@ -91,13 +90,13 @@ func (h *handlers) home(w http.ResponseWriter, r *http.Request) {
 
 	books, err := h.userBooks(r, claims.UserID())
 	if err != nil {
-		h.render.Page(w, r, "home", homeData{Authenticated: true})
+		h.render.Page(w, r, "home", homeData{})
 		return
 	}
 	if len(books) > homeRecentLimit {
 		books = books[:homeRecentLimit]
 	}
-	h.render.Page(w, r, "home", homeData{Books: books, Authenticated: true})
+	h.render.Page(w, r, "home", homeData{Books: books})
 }
 
 func (h *handlers) scanPage(w http.ResponseWriter, r *http.Request) {
