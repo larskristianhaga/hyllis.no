@@ -60,6 +60,7 @@ func main() {
 		lookup.NewGoogleBooksProvider(os.Getenv("GOOGLE_BOOKS_API_KEY")),
 		lookup.NewOpenLibraryProvider(),
 		lookup.NewNBProvider(),
+		lookup.NewBibliotekenesProvider(),
 	}, logger)
 
 	srv := server.New(":"+port, render, books, lookupSvc, logger)

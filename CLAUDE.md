@@ -32,18 +32,18 @@ Bruk **Supabase Auth** for registrering/innlogging – ikke bygg egen JWT-løsni
 Ved skanning av ny ISBN, følg denne rekkefølgen strengt:
 
 1. Sjekk Redis-cache (`isbn:<isbn13>`) først – dette skjer alltid sekvensielt og først, aldri parallelt med noe annet
-2. Ved miss: spør **Google Books API**, **Open Library API** og **Nasjonalbibliotekets søke-API** (`nb.no/services/search/v2`) **parallelt** (goroutines) – ikke sekvensielt. Prioritetsrekkefølgen Google Books > Open Library > NB er likevel bindende for *hvilket svar som vinner*: når alle har svart, velges første treff i den rekkefølgen uansett hvilken goroutine som faktisk fullførte først. Dette er implementert i `internal/lookup.Service.Resolve` – endre ikke til strengt sekvensielt uten å diskutere med bruker, det var en explisitt ytelses-motivert endring
+2. Ved miss: spør **Google Books API**, **Open Library API**, **Nasjonalbibliotekets søke-API** (`nb.no/services/search/v2`) og **bibliotekenes.no** (`bibliotekenes.no/api/e-commerce/search/bibsent-suggestions?query=<isbn13>`, Biblioteksentralens produktsøk) **parallelt** (goroutines) – ikke sekvensielt. Prioritetsrekkefølgen Google Books > Open Library > NB > bibliotekenes.no er likevel bindende for *hvilket svar som vinner*: når alle har svart, velges første treff i den rekkefølgen uansett hvilken goroutine som faktisk fullførte først. Dette er implementert i `internal/lookup.Service.Resolve` – endre ikke til strengt sekvensielt uten å diskutere med bruker, det var en explisitt ytelses-motivert endring
 3. Lagre resultatet i Redis før det returneres
 
-### Hvis alle tre API-ene bommer
-Hvis Google Books, Open Library og NB alle ikke finner ISBN-en, skal ikke oppslaget feile stille. Brukeren skal få mulighet til å legge inn tittel, forfatter og evt. forlag manuelt, og boka lagres med `kilde: manual` i stedet for en av API-kildene.
+### Hvis alle fire API-ene bommer
+Hvis Google Books, Open Library, NB og bibliotekenes.no alle ikke finner ISBN-en, skal ikke oppslaget feile stille. Brukeren skal få mulighet til å legge inn tittel, forfatter og evt. forlag manuelt, og boka lagres med `kilde: manual` i stedet for en av API-kildene.
 
 ## Datamodell
 
 Relasjonell (Postgres), ikke dokument-DB – data skal filtreres/sorteres på kombinasjoner av felt.
 
 - `users` – autentiserte brukere (styres av Supabase Auth)
-- `books` – delt bok-metadata (isbn, tittel, forfatter, forlag, år, omslags-URL, kilde). Én rad per ISBN, delt mellom alle brukere. `source`/kilde-kolonnen er begrenset til `google_books | open_library | nb | manual` via check constraint (migrasjon `000005`)
+- `books` – delt bok-metadata (isbn, tittel, forfatter, forlag, år, omslags-URL, kilde). Én rad per ISBN, delt mellom alle brukere. `source`/kilde-kolonnen er begrenset til `google_books | open_library | nb | bibliotekenes | manual` via check constraint (migrasjon `000005`, utvidet med `bibliotekenes` i `000006`)
 - `user_books` – kobling bruker↔bok: eierskap, lagt-til-dato, lesestatus, evt. notat/plassering (finnes som migrasjon `000004_create_library_entries_table`, men `internal/library`-pakken er ikke koblet inn i noen handler ennå – se auth-avsnittets implementasjonsstatus)
 
 Aldri dupliser bok-metadata per bruker – slå opp/opprett i `books`, koble via `user_books`.

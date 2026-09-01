@@ -1,6 +1,6 @@
 // Package lookup resolves ISBNs to book metadata following the priority
 // mandated by the project: a cache first, then a set of external providers
-// (Google Books, Open Library, Nasjonalbiblioteket). The cache is always
+// (Google Books, Open Library, Nasjonalbiblioteket, bibliotekenes.no). The cache is always
 // checked first and awaited before anything else; on a miss, all providers
 // are queried concurrently (to cut latency — waiting on each one in turn is
 // slow), but the *result* still respects the documented priority order: if
@@ -32,7 +32,8 @@ var ErrNotFound = errors.New("lookup: not found")
 type Provider interface {
 	// Name identifies the provider; it's stored on the resolved Book's
 	// Source field, so it must be one of the values the books.source
-	// check constraint allows ("google_books", "open_library", "nb").
+	// check constraint allows ("google_books", "open_library", "nb",
+	// "bibliotekenes").
 	Name() string
 	Lookup(ctx context.Context, isbn string) (*book.Book, error)
 }

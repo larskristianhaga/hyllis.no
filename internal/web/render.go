@@ -47,10 +47,11 @@ func initial(s string) string {
 // sourceLabels maps book.Book.Source values (as stored, per CLAUDE.md's
 // "kilde" field) to the human-readable names shown in the UI.
 var sourceLabels = map[string]string{
-	"google_books": "Google Books",
-	"open_library": "Open Library",
-	"nb":           "Nasjonalbiblioteket",
-	"manual":       "Manuelt registrert",
+	"google_books":  "Google Books",
+	"open_library":  "Open Library",
+	"nb":            "Nasjonalbiblioteket",
+	"bibliotekenes": "Bibliotekenes",
+	"manual":        "Manuelt registrert",
 }
 
 // sourceLabel returns the full display name for a book's source. Unknown
