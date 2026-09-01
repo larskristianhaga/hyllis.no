@@ -13,11 +13,15 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
+	"github.com/uptrace/bun"
 
+	"github.com/larskristianhaga/hyllis.no/internal/auth"
 	"github.com/larskristianhaga/hyllis.no/internal/book"
 	"github.com/larskristianhaga/hyllis.no/internal/db"
+	"github.com/larskristianhaga/hyllis.no/internal/library"
 	"github.com/larskristianhaga/hyllis.no/internal/lookup"
 	"github.com/larskristianhaga/hyllis.no/internal/server"
+	"github.com/larskristianhaga/hyllis.no/internal/user"
 	"github.com/larskristianhaga/hyllis.no/internal/web"
 )
 
@@ -43,14 +47,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	books, closeBooks, err := newBookRepository(context.Background(), logger)
+	ctx := context.Background()
+
+	pool, closeDB, err := newDB(ctx, logger)
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer closeBooks()
+	defer closeDB()
 
-	cache, err := newISBNCache(context.Background(), logger)
+	books, users, libraryRepo := newRepositories(pool)
+
+	cache, err := newISBNCache(ctx, logger)
 	if err != nil {
 		logger.Error("failed to connect to redis", "error", err)
 		os.Exit(1)
@@ -63,7 +71,15 @@ func main() {
 		lookup.NewBibliotekenesProvider(),
 	}, logger)
 
-	srv := server.New(":"+port, render, books, lookupSvc, logger)
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	authClient := auth.NewClient(supabaseURL, os.Getenv("SUPABASE_ANON_KEY"))
+	verifier, err := auth.NewVerifier(ctx, supabaseURL)
+	if err != nil {
+		logger.Error("failed to build Supabase JWKS verifier", "error", err)
+		os.Exit(1)
+	}
+
+	srv := server.New(":"+port, render, books, libraryRepo, users, verifier, authClient, lookupSvc, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -91,19 +107,19 @@ func main() {
 	logger.Info("server stopped")
 }
 
-// newBookRepository builds the book.Repository from DATABASE_URL. If it's
+// newDB builds the shared Bun connection pool from DATABASE_URL. If it's
 // unset (e.g. local development without Postgres configured), it logs a
-// warning and falls back to an in-memory repository seeded with mock data —
-// mirroring newISBNCache's REDIS_URL fallback below — so the app still
-// serves, just without persistence. If DATABASE_URL is set but unreachable,
-// that's a misconfiguration and startup fails fast (db.NewPool pings on
-// connect). The returned close func releases the underlying connection pool
-// and is a no-op for the in-memory fallback.
-func newBookRepository(ctx context.Context, logger *slog.Logger) (book.Repository, func(), error) {
+// warning and returns a nil pool — mirroring newISBNCache's REDIS_URL
+// fallback below — so newRepositories falls back to in-memory repositories
+// and the app still serves, just without persistence. If DATABASE_URL is
+// set but unreachable, that's a misconfiguration and startup fails fast
+// (db.NewPool pings on connect). The returned close func releases the
+// underlying connection pool and is a no-op for the in-memory fallback.
+func newDB(ctx context.Context, logger *slog.Logger) (*bun.DB, func(), error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		logger.Warn("DATABASE_URL not set, using in-memory book repository (data will not persist)")
-		return book.NewMemoryRepository(book.SeedBooks()), func() {}, nil
+		logger.Warn("DATABASE_URL not set, using in-memory repositories (data will not persist)")
+		return nil, func() {}, nil
 	}
 
 	pool, err := db.NewPool(ctx, dsn)
@@ -120,7 +136,16 @@ func newBookRepository(ctx context.Context, logger *slog.Logger) (book.Repositor
 			logger.Error("failed to close database pool", "error", err)
 		}
 	}
-	return db.NewBookRepository(pool), closePool, nil
+	return pool, closePool, nil
+}
+
+// newRepositories builds the book/user/library repositories from pool, or
+// their in-memory equivalents when pool is nil (see newDB).
+func newRepositories(pool *bun.DB) (book.Repository, user.Repository, library.Repository) {
+	if pool == nil {
+		return book.NewMemoryRepository(book.SeedBooks()), user.NewMemoryRepository(), library.NewMemoryRepository()
+	}
+	return db.NewBookRepository(pool), db.NewUserRepository(pool), db.NewLibraryRepository(pool)
 }
 
 // newISBNCache builds the ISBN lookup cache from REDIS_URL. If it's unset

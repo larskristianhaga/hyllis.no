@@ -21,4 +21,9 @@ type Repository interface {
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
 	Delete(ctx context.Context, id string) error
+	// Upsert creates u or, if a row with u.ID already exists, refreshes its
+	// Email/DisplayName. Called on every successful Supabase login/signup to
+	// keep this local profile mirror in sync with Supabase's own user
+	// record, since Go never owns the signup flow itself.
+	Upsert(ctx context.Context, u *User) error
 }

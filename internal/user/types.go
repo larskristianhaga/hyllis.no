@@ -4,11 +4,14 @@ package user
 
 import "time"
 
-// User is the shared domain representation of a registered user.
+// User is the shared domain representation of a registered user. Credentials
+// are owned entirely by Supabase Auth — this is a local mirror of the
+// profile fields Go needs (e.g. to satisfy library_entries.user_id's
+// foreign key and to render a display name), keyed by Supabase's own user
+// id (the JWT "sub" claim).
 type User struct {
-	ID           string
-	Email        string
-	DisplayName  string
-	PasswordHash string
-	CreatedAt    time.Time
+	ID          string
+	Email       string
+	DisplayName string
+	CreatedAt   time.Time
 }

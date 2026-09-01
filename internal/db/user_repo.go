@@ -28,19 +28,17 @@ func NewUserRepository(db dbtx) *UserRepository {
 type userModel struct {
 	bun.BaseModel `bun:"table:users"`
 
-	ID           string       `bun:"id,pk,nullzero,default:gen_random_uuid()"`
-	Email        string       `bun:"email"`
-	DisplayName  string       `bun:"display_name"`
-	PasswordHash string       `bun:"password_hash"`
-	CreatedAt    sql.NullTime `bun:"created_at,nullzero,default:now()"`
+	ID          string       `bun:"id,pk,nullzero,default:gen_random_uuid()"`
+	Email       string       `bun:"email"`
+	DisplayName string       `bun:"display_name"`
+	CreatedAt   sql.NullTime `bun:"created_at,nullzero,default:now()"`
 }
 
 func toUser(m *userModel) *user.User {
 	u := &user.User{
-		ID:           m.ID,
-		Email:        m.Email,
-		DisplayName:  m.DisplayName,
-		PasswordHash: m.PasswordHash,
+		ID:          m.ID,
+		Email:       m.Email,
+		DisplayName: m.DisplayName,
 	}
 	if m.CreatedAt.Valid {
 		u.CreatedAt = m.CreatedAt.Time
@@ -50,10 +48,9 @@ func toUser(m *userModel) *user.User {
 
 func fromUser(u *user.User) *userModel {
 	return &userModel{
-		ID:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		PasswordHash: u.PasswordHash,
+		ID:          u.ID,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
 	}
 }
 
@@ -111,7 +108,7 @@ func (r *UserRepository) List(ctx context.Context) ([]*user.User, error) {
 
 func (r *UserRepository) Update(ctx context.Context, u *user.User) error {
 	m := fromUser(u)
-	res, err := r.db.NewUpdate().Model(m).Column("email", "display_name", "password_hash").Where("id = ?", m.ID).Exec(ctx)
+	res, err := r.db.NewUpdate().Model(m).Column("email", "display_name").Where("id = ?", m.ID).Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return user.ErrDuplicateEmail
@@ -120,6 +117,27 @@ func (r *UserRepository) Update(ctx context.Context, u *user.User) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return user.ErrNotFound
+	}
+	return nil
+}
+
+// Upsert creates u or, if u.ID already exists, refreshes its email/display
+// name — see the Repository interface doc comment for why this exists
+// instead of a plain Create call on every login.
+func (r *UserRepository) Upsert(ctx context.Context, u *user.User) error {
+	m := fromUser(u)
+	_, err := r.db.NewInsert().
+		Model(m).
+		On("CONFLICT (id) DO UPDATE").
+		Set("email = EXCLUDED.email").
+		Set("display_name = EXCLUDED.display_name").
+		Returning("created_at").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("db: upsert user: %w", err)
+	}
+	if m.CreatedAt.Valid {
+		u.CreatedAt = m.CreatedAt.Time
 	}
 	return nil
 }

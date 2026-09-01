@@ -17,7 +17,7 @@ func TestLibraryRepository_CreateGetUpdateDelete(t *testing.T) {
 	entries := NewLibraryRepository(tx)
 	ctx := context.Background()
 
-	u := &user.User{Email: "leser@example.no", DisplayName: "Leser", PasswordHash: "hash"}
+	u := &user.User{Email: "leser@example.no", DisplayName: "Leser"}
 	if err := users.Create(ctx, u); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestLibraryRepository_DuplicateUserBookIsRejected(t *testing.T) {
 	entries := NewLibraryRepository(tx)
 	ctx := context.Background()
 
-	u := &user.User{Email: "duplikat@example.no", DisplayName: "Duplikat", PasswordHash: "hash"}
+	u := &user.User{Email: "duplikat@example.no", DisplayName: "Duplikat"}
 	if err := users.Create(ctx, u); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
