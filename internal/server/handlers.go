@@ -80,15 +80,6 @@ func (h *handlers) scanPage(w http.ResponseWriter, r *http.Request) {
 	h.render.Page(w, r, "scan", nil)
 }
 
-// serviceWorker serves the PWA service worker from the site root rather
-// than under /static/, since a service worker's default max scope is the
-// directory it's served from — rooting it here lets it control the whole
-// app (scope "/" in the manifest) without needing a Service-Worker-Allowed
-// response header.
-func (h *handlers) serviceWorker(w http.ResponseWriter, r *http.Request) {
-	http.ServeFileFS(w, r, h.render.StaticFS(), "js/service-worker.js")
-}
-
 // libraryPage backs both GET /library (the HTMX page) and GET /books (the
 // documented REST route for "søk/filtrer i eget bibliotek" — kept as an
 // alias of the same handler rather than a separate JSON API, matching this

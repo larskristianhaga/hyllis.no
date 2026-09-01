@@ -6,10 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>hyllis</title>
   <link rel="stylesheet" href="/static/css/styles.css">
-  <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="icon" href="/static/icons/icon-512.png">
-  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-  <meta name="theme-color" content="#7a4a2b">
   <script src="https://unpkg.com/htmx.org@2.0.9"></script>
 </head>
 <body>
@@ -28,11 +24,6 @@
   <main id="content" class="content">
     {{template "page" .}}
   </main>
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js"));
-    }
-  </script>
 </body>
 </html>
 {{end}}

@@ -7,20 +7,9 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
-	"mime"
 	"net/http"
 	"strings"
 )
-
-func init() {
-	// mime's built-in extension table doesn't know ".webmanifest", so
-	// http.FileServerFS would otherwise sniff it as text/plain — Chrome
-	// requires application/manifest+json (or application/json) to treat a
-	// site as installable.
-	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
-		panic(err)
-	}
-}
 
 //go:embed templates
 var templatesFS embed.FS
