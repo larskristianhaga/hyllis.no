@@ -2,6 +2,7 @@
 <section class="hero">
   <span class="hero__decor" aria-hidden="true">📚</span>
   <h1>hyllis</h1>
+  {{if .Name}}<p class="hero__greeting">Hei, {{.Name}}! 👋</p>{{end}}
   <p class="hero__tagline">Skann. Lagre. Finn igjen. Din egen bokhylle, alltid tilgjengelig.</p>
   <div class="hero__actions">
     <a class="btn btn-primary" href="/scan">📷 Skann en bok</a>

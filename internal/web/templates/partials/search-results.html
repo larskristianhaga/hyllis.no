@@ -1,11 +1,24 @@
 {{define "search-results"}}
+<p class="library__stats">
+  {{if .Query}}
+  Viser {{len .Books}} av {{.Total}} {{if eq .Total 1}}bok{{else}}bøker{{end}}
+  {{else}}
+  {{.Total}} {{if eq .Total 1}}bok{{else}}bøker{{end}} i hyllen din
+  {{end}}
+</p>
 {{if .Books}}
 <div class="book-grid">
   {{range .Books}}{{template "book-card" .}}{{end}}
 </div>
-{{else}}
+{{else if .Query}}
 <div class="error-message" role="status">
-  <p>{{if .Query}}Ingen bøker matcher «{{.Query}}».{{else}}Ingen bøker i biblioteket ennå.{{end}}</p>
+  <p>Ingen bøker matcher «{{.Query}}».</p>
+</div>
+{{else}}
+<div class="empty-state" role="status">
+  <span class="empty-state__icon" aria-hidden="true">📚</span>
+  <p>Biblioteket ditt er tomt ennå.</p>
+  <a class="btn btn-primary" href="/scan">📷 Skann din første bok</a>
 </div>
 {{end}}
 {{end}}

@@ -34,12 +34,20 @@ const homeRecentLimit = 4
 
 type homeData struct {
 	Books []*book.Book
+	// Name is the visitor's display name, set only when they actually chose
+	// one at signup — user.User.DisplayName falls back to their email when
+	// they didn't, and greeting someone by their own email isn't a greeting.
+	Name string
 }
 
 type searchResultsData struct {
 	Books []*book.Book
 	Query string
 	Field string
+	// Total is the library's full, unfiltered size — shown alongside the
+	// (possibly filtered) Books count so "how many books do I have" always
+	// reads correctly even while a search query narrows what's displayed.
+	Total int
 }
 
 type scanResultData struct {
@@ -88,15 +96,31 @@ func (h *handlers) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	name := h.displayName(r, claims)
+
 	books, err := h.userBooks(r, claims.UserID())
 	if err != nil {
-		h.render.Page(w, r, "home", homeData{})
+		h.render.Page(w, r, "home", homeData{Name: name})
 		return
 	}
 	if len(books) > homeRecentLimit {
 		books = books[:homeRecentLimit]
 	}
-	h.render.Page(w, r, "home", homeData{Books: books})
+	h.render.Page(w, r, "home", homeData{Books: books, Name: name})
+}
+
+// displayName looks up the visitor's chosen name from the local profile
+// mirror, returning "" both on lookup failure and when they never set one
+// (see homeData.Name's doc comment for why the email fallback is excluded).
+func (h *handlers) displayName(r *http.Request, claims auth.Claims) string {
+	u, err := h.users.GetByID(r.Context(), claims.UserID())
+	if err != nil {
+		return ""
+	}
+	if u.DisplayName == u.Email {
+		return ""
+	}
+	return u.DisplayName
 }
 
 func (h *handlers) scanPage(w http.ResponseWriter, r *http.Request) {
@@ -115,12 +139,12 @@ func (h *handlers) libraryPage(w http.ResponseWriter, r *http.Request) {
 		field = defaultSearchField
 	}
 
-	books, err := h.filterBooks(r, query, field)
+	books, total, err := h.filterBooks(r, query, field)
 	if err != nil {
 		h.render.Page(w, r, "library", searchResultsData{Field: field})
 		return
 	}
-	h.render.Page(w, r, "library", searchResultsData{Books: books, Query: query, Field: field})
+	h.render.Page(w, r, "library", searchResultsData{Books: books, Query: query, Field: field, Total: total})
 }
 
 // bookDetail and bookDelete take a library entry id (not a books.id — the
@@ -494,13 +518,13 @@ func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
 		field = defaultSearchField
 	}
 
-	books, err := h.filterBooks(r, query, field)
+	books, total, err := h.filterBooks(r, query, field)
 	if err != nil {
 		h.render.Partial(w, "search-results", searchResultsData{Query: query, Field: field})
 		return
 	}
 
-	h.render.Partial(w, "search-results", searchResultsData{Books: books, Query: query, Field: field})
+	h.render.Partial(w, "search-results", searchResultsData{Books: books, Query: query, Field: field, Total: total})
 }
 
 // filterBooks lists the caller's library and, if query is non-empty, keeps
@@ -512,16 +536,18 @@ func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
 // by libraryPage/GET-books and librarySearch so both honor "q"/"field"
 // identically — search here is always local (Postgres or the in-memory
 // fallback, via h.userBooks), never an external call, per CLAUDE.md's rule
-// that only the scan endpoint talks to external services.
-func (h *handlers) filterBooks(r *http.Request, query, field string) ([]*book.Book, error) {
+// that only the scan endpoint talks to external services. The returned total
+// is the caller's full, unfiltered library size, always ignoring "q"/"field"
+// so the "N bøker i hyllen din" stat stays accurate even mid-search.
+func (h *handlers) filterBooks(r *http.Request, query, field string) ([]*book.Book, int, error) {
 	claims, ok := auth.UserFromContext(r.Context())
 	if !ok {
-		return nil, errors.New("filterBooks: no authenticated user in context")
+		return nil, 0, errors.New("filterBooks: no authenticated user in context")
 	}
 
 	all, err := h.userBooks(r, claims.UserID())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	matches := make([]*book.Book, 0, len(all))
@@ -534,7 +560,7 @@ func (h *handlers) filterBooks(r *http.Request, query, field string) ([]*book.Bo
 		}
 		matches = append(matches, b)
 	}
-	return matches, nil
+	return matches, len(all), nil
 }
 
 // passesFieldFilter reports whether b should be visible under the "field"
