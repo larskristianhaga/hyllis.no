@@ -110,6 +110,10 @@ func newBookRepository(ctx context.Context, logger *slog.Logger) (book.Repositor
 		return nil, nil, err
 	}
 
+	if err := db.RunMigrations(ctx, pool, logger); err != nil {
+		return nil, nil, err
+	}
+
 	closePool := func() {
 		if err := db.Close(pool); err != nil {
 			logger.Error("failed to close database pool", "error", err)

@@ -41,6 +41,10 @@ type scanResultData struct {
 	Book *book.Book
 }
 
+type scanPreviewData struct {
+	Book *book.Book
+}
+
 type bookDetailData struct {
 	Book    *book.Book
 	Message string
@@ -129,10 +133,11 @@ func (h *handlers) registerSubmit(w http.ResponseWriter, r *http.Request) {
 
 // scanSubmit backs both the camera scanner (via htmx.ajax) and the manual
 // ISBN fallback form. It resolves the ISBN via the cache→Google
-// Books→Open Library→Nasjonalbiblioteket chain (internal/lookup), persists
-// the result, and always returns a fragment: a scan-result partial on
-// success, a manual-entry-form when nothing resolves the ISBN, or an
-// error-message on invalid input.
+// Books→Open Library→Nasjonalbiblioteket chain (internal/lookup) but does
+// NOT persist the result — it renders a scan-preview fragment with an
+// explicit "legg til i biblioteket" button (see confirmSubmit) so scanning
+// a barcode never silently adds a book. Falls back to manual-entry-form
+// when nothing resolves the ISBN, or error-message on invalid input.
 func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig forespørsel."})
@@ -169,6 +174,48 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 			Message: "Noe gikk feil under oppslag av ISBN " + isbn + ". Prøv igjen.",
 		})
 		return
+	}
+
+	h.render.Partial(w, "scan-preview", scanPreviewData{Book: b})
+}
+
+// confirmSubmit backs the "Legg til i biblioteket" button shown on the
+// scan-preview fragment. It re-reads the resolved book's fields from the
+// form (round-tripped as hidden inputs, since the book was never persisted
+// after scanSubmit's lookup) and only now calls saveBook.
+func (h *handlers) confirmSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig forespørsel."})
+		return
+	}
+
+	isbn := strings.TrimSpace(r.FormValue("isbn"))
+	title := strings.TrimSpace(r.FormValue("title"))
+	author := strings.TrimSpace(r.FormValue("author"))
+
+	if !isValidEAN13(isbn) || title == "" || author == "" {
+		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig bokdata. Prøv å skanne igjen."})
+		return
+	}
+
+	source := r.FormValue("source")
+	if source == "" {
+		source = "manual"
+	}
+
+	year, _ := strconv.Atoi(r.FormValue("year"))
+	pages, _ := strconv.Atoi(r.FormValue("pages"))
+
+	b := &book.Book{
+		ISBN:      isbn,
+		Title:     title,
+		Author:    author,
+		Publisher: strings.TrimSpace(r.FormValue("publisher")),
+		Year:      year,
+		CoverURL:  strings.TrimSpace(r.FormValue("cover_url")),
+		Language:  strings.TrimSpace(r.FormValue("language")),
+		Pages:     pages,
+		Source:    source,
 	}
 
 	saved, err := h.saveBook(r, b)

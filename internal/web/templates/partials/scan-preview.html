@@ -1,0 +1,36 @@
+{{define "scan-preview"}}
+<div class="scan-result scan-result--preview" role="status">
+  <p class="scan-result__message">✅ Fant boken!</p>
+  <article class="book-detail">
+    {{if .Book.CoverURL}}
+    <div class="book-detail__cover">
+      <img src="{{.Book.CoverURL}}" alt="Omslag til {{.Book.Title}}" loading="lazy">
+    </div>
+    {{else}}
+    <div class="book-detail__cover" aria-hidden="true">{{initial .Book.Title}}</div>
+    {{end}}
+    <div class="book-detail__info">
+      <h1>{{.Book.Title}}</h1>
+      <p class="book-detail__author">{{.Book.Author}}</p>
+      <dl class="book-detail__meta">
+        <dt>ISBN</dt>
+        <dd>{{.Book.ISBN}}</dd>
+        <dt>Kilde</dt>
+        <dd>{{sourceLabel .Book.Source}}</dd>
+      </dl>
+      <form hx-post="/books/confirm" hx-target="#scan-result" hx-swap="innerHTML">
+        <input type="hidden" name="isbn" value="{{.Book.ISBN}}">
+        <input type="hidden" name="title" value="{{.Book.Title}}">
+        <input type="hidden" name="author" value="{{.Book.Author}}">
+        <input type="hidden" name="publisher" value="{{.Book.Publisher}}">
+        <input type="hidden" name="year" value="{{.Book.Year}}">
+        <input type="hidden" name="cover_url" value="{{.Book.CoverURL}}">
+        <input type="hidden" name="language" value="{{.Book.Language}}">
+        <input type="hidden" name="pages" value="{{.Book.Pages}}">
+        <input type="hidden" name="source" value="{{.Book.Source}}">
+        <button type="submit" class="btn btn-primary">Legg til i biblioteket</button>
+      </form>
+    </div>
+  </article>
+</div>
+{{end}}

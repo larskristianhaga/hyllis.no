@@ -31,6 +31,7 @@ func New(addr string, render *web.Renderer, books book.Repository, lookupSvc *lo
 	mux.HandleFunc("GET /books/{id}", h.bookDetail)
 	mux.HandleFunc("POST /books/scan", h.scanSubmit)
 	mux.HandleFunc("POST /books/manual", h.manualSubmit)
+	mux.HandleFunc("POST /books/confirm", h.confirmSubmit)
 	mux.HandleFunc("DELETE /books/{id}", h.bookDelete)
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
