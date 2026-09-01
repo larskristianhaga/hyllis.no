@@ -7,6 +7,7 @@
   var READER_ID = "reader";
   var RESULT_SELECTOR = "#scan-result";
   var TORCH_BUTTON_ID = "torch-toggle";
+  var AUTO_ADD_TOGGLE_ID = "auto-add-toggle";
 
   var html5Qrcode = null;
   var scanning = false;
@@ -27,6 +28,14 @@
       '<div class="error-message" role="alert"><p>' + message + "</p></div>";
   }
 
+  // isAutoAddEnabled reports whether the "Legg til automatisk" toggle is
+  // checked — when it is, scanSubmit skips the confirm-before-adding step
+  // so scanning many books in a row doesn't need a tap after each one.
+  function isAutoAddEnabled() {
+    var toggle = document.getElementById(AUTO_ADD_TOGGLE_ID);
+    return !!toggle && toggle.checked;
+  }
+
   // submitCode POSTs a decoded/typed barcode to /books/scan via htmx.ajax
   // and resumes scanning once the lookup settles, whether it succeeded or
   // failed.
@@ -43,7 +52,7 @@
       .ajax("POST", "/books/scan", {
         target: RESULT_SELECTOR,
         swap: "innerHTML",
-        values: { isbn: code, source: "camera" },
+        values: { isbn: code, source: "camera", auto: isAutoAddEnabled() ? "true" : "" },
       })
       .finally(resumeScanning);
   }

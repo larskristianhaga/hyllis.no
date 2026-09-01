@@ -366,6 +366,19 @@ input:focus-visible {
   object-fit: cover;
 }
 
+.scan-options {
+  max-width: 480px;
+  margin: 0 auto var(--spacing-2);
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.scan-options label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
 .manual-fallback {
   max-width: 480px;
   margin: var(--spacing-3) auto 0;

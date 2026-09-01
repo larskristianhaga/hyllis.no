@@ -10,11 +10,18 @@
     </button>
   </div>
 
+  <div class="scan-options">
+    <label>
+      <input type="checkbox" id="auto-add-toggle" name="auto" value="true" form="manual-isbn-form">
+      Legg til automatisk (hopp over bekreftelse — for å skanne mange bøker på rad)
+    </label>
+  </div>
+
   <div id="scan-result" aria-live="polite"></div>
 
   <details class="manual-fallback" open>
     <summary>Manuell registrering</summary>
-    <form class="manual-isbn-form" hx-post="/books/scan" hx-target="#scan-result" hx-swap="innerHTML">
+    <form id="manual-isbn-form" class="manual-isbn-form" hx-post="/books/scan" hx-target="#scan-result" hx-swap="innerHTML">
       <input type="hidden" name="source" value="manual">
       <label for="isbn-input">ISBN (13 siffer)</label>
       <input

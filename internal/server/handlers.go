@@ -133,11 +133,15 @@ func (h *handlers) registerSubmit(w http.ResponseWriter, r *http.Request) {
 
 // scanSubmit backs both the camera scanner (via htmx.ajax) and the manual
 // ISBN fallback form. It resolves the ISBN via the cache→Google
-// Books→Open Library→Nasjonalbiblioteket chain (internal/lookup) but does
-// NOT persist the result — it renders a scan-preview fragment with an
-// explicit "legg til i biblioteket" button (see confirmSubmit) so scanning
-// a barcode never silently adds a book. Falls back to manual-entry-form
-// when nothing resolves the ISBN, or error-message on invalid input.
+// Books→Open Library→Nasjonalbiblioteket chain (internal/lookup). By
+// default it does NOT persist the result — it renders a scan-preview
+// fragment with an explicit "legg til i biblioteket" button (see
+// confirmSubmit) so scanning a barcode never silently adds a book. If the
+// "auto" form value is "true" (the /scan page's "Legg til automatisk"
+// toggle, for scanning many books back-to-back without confirming each
+// one), it saves immediately instead and renders scan-result. Falls back
+// to manual-entry-form when nothing resolves the ISBN, or error-message on
+// invalid input.
 func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{Message: "Ugyldig forespørsel."})
@@ -173,6 +177,18 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 		h.render.Partial(w, "error-message", errorMessageData{
 			Message: "Noe gikk feil under oppslag av ISBN " + isbn + ". Prøv igjen.",
 		})
+		return
+	}
+
+	if r.FormValue("auto") == "true" {
+		saved, err := h.saveBook(r, b)
+		if err != nil {
+			h.render.Partial(w, "error-message", errorMessageData{
+				Message: "Fant boken, men kunne ikke lagre den. Prøv igjen.",
+			})
+			return
+		}
+		h.render.Partial(w, "scan-result", scanResultData{Book: saved})
 		return
 	}
 
