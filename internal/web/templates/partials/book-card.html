@@ -2,7 +2,7 @@
 <a class="book-card" href="/books/{{.ID}}">
   {{if .CoverURL}}
   <div class="book-card__cover">
-    <img src="{{.CoverURL}}" alt="Omslag til {{.Title}}" loading="lazy">
+    <img src="{{https .CoverURL}}" alt="Omslag til {{.Title}}" width="240" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">
   </div>
   {{else}}
   <div class="book-card__cover" aria-hidden="true">{{initial .Title}}</div>

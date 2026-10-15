@@ -1,0 +1,11 @@
+{{define "import-result"}}
+<div class="scan-result scan-result--success" role="status">
+  <p class="scan-result__message">✅ Import ferdig</p>
+  <ul>
+    <li>{{.Added}} {{if eq .Added 1}}bok{{else}}bøker{{end}} lagt til</li>
+    <li>{{.Existing}} fantes fra før</li>
+    {{if .Skipped}}<li>{{.Skipped}} {{if eq .Skipped 1}}rad{{else}}rader{{end}} hoppet over (mangler gyldig ISBN eller tittel)</li>{{end}}
+  </ul>
+  {{if .Added}}<p><a href="/library">Last biblioteket på nytt</a> for å se de nye bøkene.</p>{{end}}
+</div>
+{{end}}

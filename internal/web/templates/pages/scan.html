@@ -17,11 +17,12 @@
     </label>
   </div>
 
+  <p id="scan-loading" class="htmx-indicator" role="status">Slår opp boken …</p>
   <div id="scan-result" aria-live="polite"></div>
 
   <details class="manual-fallback" open>
     <summary>Manuell registrering</summary>
-    <form id="manual-isbn-form" class="manual-isbn-form" hx-post="/books/scan" hx-target="#scan-result" hx-swap="innerHTML">
+    <form id="manual-isbn-form" class="manual-isbn-form" hx-post="/books/scan" hx-target="#scan-result" hx-swap="innerHTML" hx-indicator="#scan-loading">
       <input type="hidden" name="source" value="manual">
       <label for="isbn-input">ISBN (13 siffer)</label>
       <input

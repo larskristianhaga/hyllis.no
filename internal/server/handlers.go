@@ -4,8 +4,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/larskristianhaga/hyllis.no/internal/auth"
 	"github.com/larskristianhaga/hyllis.no/internal/book"
@@ -41,17 +44,40 @@ type homeData struct {
 }
 
 type searchResultsData struct {
+	// Books is the current page of matches (see libraryPageSize).
 	Books []*book.Book
 	Query string
 	Field string
+	Sort  string
 	// Total is the library's full, unfiltered size — shown alongside the
-	// (possibly filtered) Books count so "how many books do I have" always
+	// (possibly filtered) match count so "how many books do I have" always
 	// reads correctly even while a search query narrows what's displayed.
 	Total int
+	// Matches is how many books matched the query/field filter across all
+	// pages (== Total when nothing is filtered).
+	Matches int
+	// NextURL is the /books/search URL for the following page, or "" on the
+	// last page. The book-cards partial renders an hx-trigger="revealed"
+	// sentinel from it for infinite scroll.
+	NextURL string
 }
 
 type scanResultData struct {
 	Book *book.Book
+	// Duplicate is true when the user already had this book, so the
+	// template says so instead of claiming it was just added.
+	Duplicate bool
+}
+
+// entryDetailsData backs the entry-details partial: the per-user fields
+// (reading status, notes, location) of one library entry.
+type entryDetailsData struct {
+	ID       string
+	Status   string
+	Notes    string
+	Location string
+	Saved    bool
+	Error    string
 }
 
 type scanPreviewData struct {
@@ -60,7 +86,22 @@ type scanPreviewData struct {
 
 type bookDetailData struct {
 	Book    *book.Book
+	Entry   *entryDetailsData
 	Message string
+}
+
+// PageTitle gives the layout a per-page <title> (see web.Renderer).
+func (d bookDetailData) PageTitle() string {
+	if d.Book != nil {
+		return d.Book.Title
+	}
+	return "Bok ikke funnet"
+}
+
+type importResultData struct {
+	Added    int
+	Existing int
+	Skipped  int
 }
 
 type errorMessageData struct {
@@ -133,18 +174,13 @@ func (h *handlers) scanPage(w http.ResponseWriter, r *http.Request) {
 // app's server-rendered-HTML architecture). Optional "q"/"field" query
 // params filter the initial page load the same way /books/search does.
 func (h *handlers) libraryPage(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	field := r.URL.Query().Get("field")
-	if field == "" {
-		field = defaultSearchField
-	}
-
-	books, total, err := h.filterBooks(r, query, field)
+	q := parseLibraryQuery(r)
+	data, err := h.searchData(r, q)
 	if err != nil {
-		h.render.Page(w, r, "library", searchResultsData{Field: field})
+		h.render.Page(w, r, "library", searchResultsData{Field: q.Field, Sort: q.Sort})
 		return
 	}
-	h.render.Page(w, r, "library", searchResultsData{Books: books, Query: query, Field: field, Total: total})
+	h.render.Page(w, r, "library", data)
 }
 
 // bookDetail and bookDelete take a library entry id (not a books.id — the
@@ -154,12 +190,77 @@ func (h *handlers) bookDetail(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.UserFromContext(r.Context())
 	id := r.PathValue("id")
 
-	b, err := h.ownedBookView(r, claims.UserID(), id)
+	row, err := h.ownedRow(r, claims.UserID(), id)
 	if err != nil {
 		h.render.PageWithStatus(w, r, "book_detail", http.StatusNotFound, bookDetailData{Message: "Boken ble ikke funnet."})
 		return
 	}
-	h.render.Page(w, r, "book_detail", bookDetailData{Book: b})
+	h.render.Page(w, r, "book_detail", bookDetailData{Book: row.view(), Entry: newEntryDetails(row.Entry)})
+}
+
+// newEntryDetails maps a library entry to its editable-fields view model.
+func newEntryDetails(e *library.Entry) *entryDetailsData {
+	status := e.Status
+	if !library.ValidStatus(status) {
+		status = library.StatusUnread
+	}
+	return &entryDetailsData{ID: e.ID, Status: status, Notes: e.Notes, Location: e.Location}
+}
+
+// Limits on the free-text entry fields, in runes.
+const (
+	maxNotesLen    = 2000
+	maxLocationLen = 200
+)
+
+// bookUpdate backs PATCH /books/{id} (id is a library entry id): it saves
+// the reading status, notes, and location the user edited on the detail
+// page and re-renders the entry-details form with a confirmation.
+func (h *handlers) bookUpdate(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.UserFromContext(r.Context())
+
+	entry, err := h.library.GetByID(r.Context(), r.PathValue("id"))
+	if err != nil || entry.UserID != claims.UserID() {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	data := newEntryDetails(entry)
+	if err := r.ParseForm(); err != nil {
+		data.Error = "Ugyldig forespørsel."
+		h.render.Partial(w, "entry-details", data)
+		return
+	}
+
+	status := r.FormValue("status")
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	location := strings.TrimSpace(r.FormValue("location"))
+	data.Status, data.Notes, data.Location = status, notes, location
+
+	switch {
+	case !library.ValidStatus(status):
+		data.Status = entry.Status
+		data.Error = "Ugyldig lesestatus."
+	case utf8.RuneCountInString(notes) > maxNotesLen:
+		data.Error = "Notatet er for langt (maks 2000 tegn)."
+	case utf8.RuneCountInString(location) > maxLocationLen:
+		data.Error = "Plasseringen er for lang (maks 200 tegn)."
+	}
+	if data.Error != "" {
+		h.render.Partial(w, "entry-details", data)
+		return
+	}
+
+	entry.Status, entry.Notes, entry.Location = status, notes, location
+	if err := h.library.Update(r.Context(), entry); err != nil {
+		h.log.Error("failed to update library entry", "entry_id", entry.ID, "error", err)
+		data.Error = "Kunne ikke lagre endringene. Prøv igjen."
+		h.render.Partial(w, "entry-details", data)
+		return
+	}
+
+	data.Saved = true
+	h.render.Partial(w, "entry-details", data)
 }
 
 func (h *handlers) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +404,13 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Already in this user's library: say so right away, without spending
+	// a lookup (cache or external APIs) on a book we already have.
+	if owned, ok := h.ownedByISBN(r, isbn); ok {
+		h.render.Partial(w, "scan-result", scanResultData{Book: owned, Duplicate: true})
+		return
+	}
+
 	b, err := h.lookup.Resolve(r.Context(), isbn)
 	if errors.Is(err, lookup.ErrNotFound) {
 		h.render.Partial(w, "manual-entry-form", manualEntryFormData{ISBN: isbn})
@@ -316,14 +424,14 @@ func (h *handlers) scanSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.FormValue("auto") == "true" {
-		saved, err := h.saveBook(r, b)
+		saved, existed, err := h.saveBook(r, b, nil)
 		if err != nil {
 			h.render.Partial(w, "error-message", errorMessageData{
 				Message: "Fant boken, men kunne ikke lagre den. Prøv igjen.",
 			})
 			return
 		}
-		h.render.Partial(w, "scan-result", scanResultData{Book: saved})
+		h.render.Partial(w, "scan-result", scanResultData{Book: saved, Duplicate: existed})
 		return
 	}
 
@@ -369,7 +477,7 @@ func (h *handlers) confirmSubmit(w http.ResponseWriter, r *http.Request) {
 		Source:    source,
 	}
 
-	saved, err := h.saveBook(r, b)
+	saved, existed, err := h.saveBook(r, b, nil)
 	if err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{
 			Message: "Fant boken, men kunne ikke lagre den. Prøv igjen.",
@@ -377,7 +485,7 @@ func (h *handlers) confirmSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.render.Partial(w, "scan-result", scanResultData{Book: saved})
+	h.render.Partial(w, "scan-result", scanResultData{Book: saved, Duplicate: existed})
 }
 
 // manualSubmit backs the manual-entry-form shown when scanSubmit's lookup
@@ -402,13 +510,25 @@ func (h *handlers) manualSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b := &book.Book{ISBN: isbn, Title: title, Author: author, Publisher: publisher, Source: "manual"}
-	saved, err := h.saveBook(r, b)
+	saved, existed, err := h.saveBook(r, b, nil)
 	if err != nil {
 		h.render.Partial(w, "error-message", errorMessageData{Message: "Kunne ikke lagre boken. Prøv igjen."})
 		return
 	}
 
-	h.render.Partial(w, "scan-result", scanResultData{Book: saved})
+	h.render.Partial(w, "scan-result", scanResultData{Book: saved, Duplicate: existed})
+}
+
+// libraryRow pairs a library entry with the (shared) book it points at.
+type libraryRow struct {
+	Book  *book.Book
+	Entry *library.Entry
+}
+
+// view returns the display copy of the book whose ID/CreatedAt are the
+// entry's — see entryBookView for why.
+func (row libraryRow) view() *book.Book {
+	return entryBookView(row.Book, row.Entry)
 }
 
 // saveBook persists a resolved-but-not-yet-saved book and links it into the
@@ -417,39 +537,68 @@ func (h *handlers) manualSubmit(w http.ResponseWriter, r *http.Request) {
 // reuses the existing row instead of creating a duplicate, per the
 // project's duplicate-ISBN rule. If this user already has that book in
 // their library (double-scan/double-submit), it returns their existing
-// entry instead of erroring. The returned *book.Book is a display copy
-// whose ID/CreatedAt are the library entry's — see ownedBookView's doc
-// comment for why.
-func (h *handlers) saveBook(r *http.Request, b *book.Book) (*book.Book, error) {
+// entry instead of erroring, and existed is true so callers can tell the
+// user they already had it. details, if non-nil, supplies the status, notes
+// and location for a newly created entry (used by CSV import); it is
+// ignored when the entry already existed. The returned *book.Book is a
+// display copy whose ID/CreatedAt are the library entry's — see
+// entryBookView's doc comment for why.
+func (h *handlers) saveBook(r *http.Request, b *book.Book, details *library.Entry) (view *book.Book, existed bool, err error) {
 	claims, ok := auth.UserFromContext(r.Context())
 	if !ok {
-		return nil, errors.New("saveBook: no authenticated user in context")
+		return nil, false, errors.New("saveBook: no authenticated user in context")
 	}
 
 	if err := h.books.Create(r.Context(), b); err != nil {
 		if !errors.Is(err, book.ErrDuplicateISBN) {
-			return nil, err
+			return nil, false, err
 		}
 		existing, err := h.books.GetByISBN(r.Context(), b.ISBN)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		b = existing
 	}
 
 	entry := &library.Entry{UserID: claims.UserID(), BookID: b.ID}
+	if details != nil {
+		entry.Status = details.Status
+		entry.Notes = details.Notes
+		entry.Location = details.Location
+	}
 	if err := h.library.Create(r.Context(), entry); err != nil {
 		if !errors.Is(err, library.ErrDuplicateEntry) {
-			return nil, err
+			return nil, false, err
 		}
 		existing, err := h.library.GetByUserAndBook(r.Context(), claims.UserID(), b.ID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		entry = existing
+		existed = true
 	}
 
-	return entryBookView(b, entry), nil
+	return entryBookView(b, entry), existed, nil
+}
+
+// ownedByISBN reports whether the current user already has the book with
+// this ISBN in their library, returning its display copy if so. Any lookup
+// failure counts as "not owned" — the caller then simply proceeds with a
+// normal lookup/save, which handles duplicates on its own.
+func (h *handlers) ownedByISBN(r *http.Request, isbn string) (*book.Book, bool) {
+	claims, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		return nil, false
+	}
+	b, err := h.books.GetByISBN(r.Context(), isbn)
+	if err != nil {
+		return nil, false
+	}
+	entry, err := h.library.GetByUserAndBook(r.Context(), claims.UserID(), b.ID)
+	if err != nil {
+		return nil, false
+	}
+	return entryBookView(b, entry), true
 }
 
 // entryBookView returns a display copy of b whose ID/CreatedAt are entry's,
@@ -463,41 +612,53 @@ func entryBookView(b *book.Book, e *library.Entry) *book.Book {
 	return &view
 }
 
-// ownedBookView resolves a library entry id into its display copy (see
-// entryBookView), 404ing via library.ErrNotFound if the entry doesn't exist
-// or doesn't belong to userID.
-func (h *handlers) ownedBookView(r *http.Request, userID, entryID string) (*book.Book, error) {
+// ownedRow resolves a library entry id into its entry + book, 404ing via
+// library.ErrNotFound if the entry doesn't exist or doesn't belong to
+// userID.
+func (h *handlers) ownedRow(r *http.Request, userID, entryID string) (libraryRow, error) {
 	entry, err := h.library.GetByID(r.Context(), entryID)
 	if err != nil {
-		return nil, err
+		return libraryRow{}, err
 	}
 	if entry.UserID != userID {
-		return nil, library.ErrNotFound
+		return libraryRow{}, library.ErrNotFound
 	}
 	b, err := h.books.GetByID(r.Context(), entry.BookID)
 	if err != nil {
-		return nil, err
+		return libraryRow{}, err
 	}
-	return entryBookView(b, entry), nil
+	return libraryRow{Book: b, Entry: entry}, nil
 }
 
-// userBooks lists userID's library in newest-added-first order (see
-// library.Repository.ListByUser), resolved into display copies (see
-// entryBookView).
-func (h *handlers) userBooks(r *http.Request, userID string) ([]*book.Book, error) {
+// userRows lists userID's library in newest-added-first order (see
+// library.Repository.ListByUser), with each entry's book resolved.
+func (h *handlers) userRows(r *http.Request, userID string) ([]libraryRow, error) {
 	entries, err := h.library.ListByUser(r.Context(), userID)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]*book.Book, 0, len(entries))
+	out := make([]libraryRow, 0, len(entries))
 	for _, e := range entries {
 		b, err := h.books.GetByID(r.Context(), e.BookID)
 		if err != nil {
 			h.log.Error("failed to resolve library entry's book", "entry_id", e.ID, "book_id", e.BookID, "error", err)
 			continue
 		}
-		out = append(out, entryBookView(b, e))
+		out = append(out, libraryRow{Book: b, Entry: e})
+	}
+	return out, nil
+}
+
+// userBooks is userRows reduced to display copies (see entryBookView).
+func (h *handlers) userBooks(r *http.Request, userID string) ([]*book.Book, error) {
+	rows, err := h.userRows(r, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*book.Book, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.view())
 	}
 	return out, nil
 }
@@ -507,24 +668,128 @@ func (h *handlers) userBooks(r *http.Request, userID string) ([]*book.Book, erro
 // passesFieldFilter.
 const defaultSearchField = "all"
 
+// Library sort orders ("sort" query param). sortNewest is the repository's
+// natural order, so it needs no re-sorting.
+const (
+	sortNewest = "new"
+	sortOldest = "old"
+	sortTitle  = "title"
+	sortAuthor = "author"
+
+	defaultSort = sortNewest
+)
+
+// libraryPageSize is how many books one page of the library grid holds;
+// further pages are fetched by htmx as the user scrolls (see the
+// book-cards partial).
+const libraryPageSize = 24
+
+// libraryQuery is the parsed, normalized "q"/"field"/"sort"/"page" query
+// of /library, /books and /books/search.
+type libraryQuery struct {
+	Q     string
+	Field string
+	Sort  string
+	Page  int
+}
+
+func parseLibraryQuery(r *http.Request) libraryQuery {
+	v := r.URL.Query()
+	q := libraryQuery{
+		Q:     strings.TrimSpace(v.Get("q")),
+		Field: v.Get("field"),
+		Sort:  v.Get("sort"),
+		Page:  1,
+	}
+	if q.Field == "" {
+		q.Field = defaultSearchField
+	}
+	switch q.Sort {
+	case sortNewest, sortOldest, sortTitle, sortAuthor:
+	default:
+		q.Sort = defaultSort
+	}
+	if n, err := strconv.Atoi(v.Get("page")); err == nil && n > 1 {
+		q.Page = min(n, 10000)
+	}
+	return q
+}
+
+// nextURL returns the /books/search URL for the page after q.Page.
+func (q libraryQuery) nextURL() string {
+	v := url.Values{}
+	v.Set("q", q.Q)
+	v.Set("field", q.Field)
+	v.Set("sort", q.Sort)
+	v.Set("page", strconv.Itoa(q.Page+1))
+	return "/books/search?" + v.Encode()
+}
+
 // librarySearch backs the search-as-you-type input on the library page. "q"
 // fuzzily matches across title, author, and publisher together; the
 // "field" select is unrelated to that match — it's a separate, purely
-// cosmetic display filter, see filterBooks.
+// cosmetic display filter, see filterBooks. Page 1 renders the stats line
+// plus the first grid page; later pages (infinite scroll) render only the
+// next batch of cards.
 func (h *handlers) librarySearch(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	field := r.URL.Query().Get("field")
-	if field == "" {
-		field = defaultSearchField
-	}
+	q := parseLibraryQuery(r)
 
-	books, total, err := h.filterBooks(r, query, field)
+	data, err := h.searchData(r, q)
 	if err != nil {
-		h.render.Partial(w, "search-results", searchResultsData{Query: query, Field: field})
+		h.render.Partial(w, "search-results", searchResultsData{Query: q.Q, Field: q.Field, Sort: q.Sort})
 		return
 	}
 
-	h.render.Partial(w, "search-results", searchResultsData{Books: books, Query: query, Field: field, Total: total})
+	if q.Page > 1 {
+		h.render.Partial(w, "book-cards", data)
+		return
+	}
+	h.render.Partial(w, "search-results", data)
+}
+
+// searchData filters, sorts and paginates the caller's library per q.
+func (h *handlers) searchData(r *http.Request, q libraryQuery) (searchResultsData, error) {
+	matches, total, err := h.filterBooks(r, q.Q, q.Field)
+	if err != nil {
+		return searchResultsData{}, err
+	}
+	sortBooks(matches, q.Sort)
+
+	data := searchResultsData{
+		Query:   q.Q,
+		Field:   q.Field,
+		Sort:    q.Sort,
+		Total:   total,
+		Matches: len(matches),
+	}
+
+	start := (q.Page - 1) * libraryPageSize
+	if start < len(matches) {
+		end := min(start+libraryPageSize, len(matches))
+		data.Books = matches[start:end]
+		if end < len(matches) {
+			data.NextURL = q.nextURL()
+		}
+	}
+	return data, nil
+}
+
+// sortBooks orders books in place. The input is newest-added-first
+// (library.Repository.ListByUser), and the sort is stable, so ties keep
+// that deterministic order.
+func sortBooks(books []*book.Book, order string) {
+	switch order {
+	case sortOldest:
+		slices.Reverse(books)
+	case sortTitle:
+		slices.SortStableFunc(books, func(a, b *book.Book) int {
+			return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		})
+	case sortAuthor:
+		slices.SortStableFunc(books, func(a, b *book.Book) int {
+			return strings.Compare(strings.ToLower(a.Author), strings.ToLower(b.Author))
+		})
+	}
 }
 
 // filterBooks lists the caller's library and, if query is non-empty, keeps
@@ -583,7 +848,7 @@ func passesFieldFilter(b *book.Book, field string) bool {
 }
 
 // bookDelete backs DELETE /books/{id}, where id is a library entry id (see
-// ownedBookView's doc comment). It's a plain REST action (no HTML fragment
+// entryBookView's doc comment). It's a plain REST action (no HTML fragment
 // to render): 204 on success, 404 if the entry doesn't exist or doesn't
 // belong to the caller, 500 on any other repository error. If the request
 // came from htmx (i.e. a delete button on the book detail page), an

@@ -104,6 +104,11 @@ a {
   color: var(--color-primary);
 }
 
+.site-nav a[aria-current="page"] {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
 .site-nav__logout {
   display: contents;
 }
@@ -293,8 +298,11 @@ label {
   color: var(--color-muted);
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
+  font-family: inherit;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -303,7 +311,13 @@ input {
   color: var(--color-text);
 }
 
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+.btn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
 }
@@ -586,4 +600,191 @@ input:focus-visible {
 
 .scan-result--not-found .manual-isbn-form {
   margin-top: var(--spacing-2);
+}
+
+/* -------------------------------------------------------------------- */
+/* Accessibility helpers                                                */
+/* -------------------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: var(--spacing-1);
+  top: -4rem;
+  z-index: 100;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: var(--spacing-1);
+}
+
+.content:focus {
+  outline: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Our own htmx indicator styles (htmx's built-in ones are disabled via the
+   htmx-config meta tag in layout.html). Hidden until htmx adds
+   .htmx-request to the indicator or the element issuing the request. */
+.htmx-indicator {
+  display: none;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 var(--spacing-1);
+}
+
+.htmx-indicator.htmx-request,
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: block;
+}
+
+/* -------------------------------------------------------------------- */
+/* Skip-to-content, toast, misc components                              */
+/* -------------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--spacing-3) + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: min(90vw, 28rem);
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  border: 1px solid var(--color-error-text);
+  border-radius: var(--radius);
+  padding: var(--spacing-1) var(--spacing-2);
+  box-shadow: 0 8px 20px rgba(32, 26, 20, 0.15);
+}
+
+.back-link {
+  margin: 0 0 var(--spacing-2);
+  font-size: 0.9rem;
+}
+
+.load-more {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
+.library__transfer {
+  margin-top: var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing-2);
+  background: var(--color-surface);
+}
+
+.library__transfer summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.entry-details {
+  max-width: 480px;
+  margin-top: var(--spacing-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing-3);
+}
+
+.entry-details h2 {
+  font-size: 1.25rem;
+}
+
+.form-saved {
+  color: var(--color-success-text);
+  background: var(--color-success-bg);
+  border-radius: var(--radius);
+  padding: var(--spacing-1) var(--spacing-2);
+  margin: 0;
+  font-weight: 600;
+}
+
+.scan-result--duplicate {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: var(--spacing-2);
+  margin: var(--spacing-2) 0;
+}
+
+.scan-result--duplicate p:last-child {
+  margin-bottom: 0;
+}
+
+/* -------------------------------------------------------------------- */
+/* Mobile bottom navigation                                             */
+/* -------------------------------------------------------------------- */
+
+@media (max-width: 599px) {
+  body {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+
+  .site-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    justify-content: space-around;
+    flex-wrap: nowrap;
+    gap: 0;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 0.25rem 0 calc(0.25rem + env(safe-area-inset-bottom));
+  }
+
+  .site-nav a,
+  .site-nav .link-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+    min-width: 3.5rem;
+    min-height: 3rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .site-nav a span,
+  .site-nav .link-button span {
+    font-size: 1.25rem;
+  }
+
+  .toast {
+    bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* -------------------------------------------------------------------- */
+/* Reduced motion                                                       */
+/* -------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  .book-card:hover,
+  .feature-card:hover {
+    transform: none;
+  }
 }
