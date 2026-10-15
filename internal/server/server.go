@@ -25,7 +25,7 @@ func New(addr string, render *web.Renderer, books book.Repository, libraryRepo l
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(render.StaticFS())))
+	mux.Handle("GET /static/", staticCache(http.StripPrefix("/static/", http.FileServerFS(render.StaticFS()))))
 
 	// / stays public: per-user library ownership means an unauthenticated
 	// visitor just sees a generic landing view instead of a personal
@@ -50,11 +50,14 @@ func New(addr string, render *web.Renderer, books book.Repository, libraryRepo l
 	mux.Handle("POST /books/scan", requireAuth(http.HandlerFunc(h.scanSubmit)))
 	mux.Handle("POST /books/manual", requireAuth(http.HandlerFunc(h.manualSubmit)))
 	mux.Handle("POST /books/confirm", requireAuth(http.HandlerFunc(h.confirmSubmit)))
+	mux.Handle("PATCH /books/{id}", requireAuth(http.HandlerFunc(h.bookUpdate)))
 	mux.Handle("DELETE /books/{id}", requireAuth(http.HandlerFunc(h.bookDelete)))
+	mux.Handle("GET /library/export.csv", requireAuth(http.HandlerFunc(h.libraryExport)))
+	mux.Handle("POST /library/import", requireAuth(http.HandlerFunc(h.libraryImport)))
 
 	return &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           securityHeaders(gzipResponses(csrfProtection(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

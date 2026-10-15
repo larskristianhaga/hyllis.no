@@ -1,6 +1,13 @@
 {{define "scan-result"}}
+{{if .Duplicate}}
+<div class="scan-result scan-result--duplicate" role="status">
+  <p class="scan-result__message">ℹ️ Du har allerede «{{.Book.Title}}» i biblioteket.</p>
+  <p><a href="/books/{{.Book.ID}}">Åpne boka</a></p>
+</div>
+{{else}}
 <div class="scan-result scan-result--success" role="status">
-  <p class="scan-result__message">✅ Fant boken!</p>
+  <p class="scan-result__message">✅ Lagt til i biblioteket!</p>
   {{template "book-detail" .Book}}
 </div>
+{{end}}
 {{end}}

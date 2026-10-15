@@ -20,3 +20,8 @@ go.work.sum
 
 # Mac directories
 .DS_Store
+
+# Local secrets
+.env
+.env.*
+!.env.example

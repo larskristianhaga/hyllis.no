@@ -1,0 +1,22 @@
+{{define "entry-details"}}
+<form class="entry-details" hx-patch="/books/{{.ID}}" hx-target="this" hx-swap="outerHTML">
+  <h2>Din bok</h2>
+  {{if .Saved}}<p class="form-saved" role="status">✅ Lagret</p>{{end}}
+  {{if .Error}}<div class="error-message" role="alert"><p>{{.Error}}</p></div>{{end}}
+
+  <label for="entry-status">Lesestatus</label>
+  <select id="entry-status" name="status">
+    <option value="unread"{{if eq .Status "unread"}} selected{{end}}>Ikke lest</option>
+    <option value="reading"{{if eq .Status "reading"}} selected{{end}}>Leser nå</option>
+    <option value="read"{{if eq .Status "read"}} selected{{end}}>Lest</option>
+  </select>
+
+  <label for="entry-location">Plassering</label>
+  <input id="entry-location" name="location" maxlength="200" value="{{.Location}}" placeholder="F.eks. stua, hylle 2">
+
+  <label for="entry-notes">Notat</label>
+  <textarea id="entry-notes" name="notes" rows="4" maxlength="2000">{{.Notes}}</textarea>
+
+  <button type="submit" class="btn btn-primary">Lagre</button>
+</form>
+{{end}}

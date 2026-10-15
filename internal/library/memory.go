@@ -39,6 +39,9 @@ func (r *MemoryRepository) Create(_ context.Context, e *Entry) error {
 	if e.AddedAt.IsZero() {
 		e.AddedAt = time.Now()
 	}
+	if e.Status == "" {
+		e.Status = StatusUnread
+	}
 	copied := *e
 	r.entries[e.ID] = &copied
 	return nil

@@ -4,15 +4,19 @@
   <form
     class="library__search"
     role="search"
+    action="/library"
+    method="get"
     hx-get="/books/search"
     hx-target="#library-results"
     hx-swap="innerHTML"
-    hx-trigger="keyup changed delay:300ms from:input[name='q'], search from:input[name='q'], change from:select[name='field']">
+    hx-indicator="#library-loading"
+    hx-trigger="keyup changed delay:300ms from:input[name='q'], search from:input[name='q'], change from:select[name='field'], change from:select[name='sort']">
     <label for="library-search-input">Søk i biblioteket</label>
     <input
       id="library-search-input"
       type="search"
       name="q"
+      value="{{.Query}}"
       placeholder="Søk på tittel, forfatter eller forlag"
       autocomplete="off">
 
@@ -24,14 +28,37 @@
     -->
     <label for="library-search-field">Vis kun bøker med</label>
     <select id="library-search-field" name="field">
-      <option value="all">Alle treff</option>
-      <option value="title">Registrert tittel</option>
-      <option value="author">Registrert forfatter</option>
-      <option value="publisher">Registrert forlag</option>
+      <option value="all"{{if eq .Field "all"}} selected{{end}}>Alle treff</option>
+      <option value="title"{{if eq .Field "title"}} selected{{end}}>Registrert tittel</option>
+      <option value="author"{{if eq .Field "author"}} selected{{end}}>Registrert forfatter</option>
+      <option value="publisher"{{if eq .Field "publisher"}} selected{{end}}>Registrert forlag</option>
     </select>
+
+    <label for="library-sort">Sorter etter</label>
+    <select id="library-sort" name="sort">
+      <option value="new"{{if eq .Sort "new"}} selected{{end}}>Nyest lagt til</option>
+      <option value="old"{{if eq .Sort "old"}} selected{{end}}>Eldst lagt til</option>
+      <option value="title"{{if eq .Sort "title"}} selected{{end}}>Tittel (A–Å)</option>
+      <option value="author"{{if eq .Sort "author"}} selected{{end}}>Forfatter (A–Å)</option>
+    </select>
+    <noscript><button type="submit" class="btn btn-secondary">Søk</button></noscript>
   </form>
-  <div id="library-results">
+  <p id="library-loading" class="htmx-indicator" role="status">Søker …</p>
+  <div id="library-results" aria-live="polite">
     {{template "search-results" .}}
   </div>
+
+  <details class="library__transfer">
+    <summary>Eksporter og importer</summary>
+    <p>Last ned hele biblioteket ditt som CSV, eller importer en CSV fra Hyllis eller Goodreads. Importen bruker bare dataene i filen og slår ikke opp bøkene på nytt.</p>
+    <p><a class="btn btn-secondary" href="/library/export.csv" download>⬇️ Eksporter som CSV</a></p>
+    <form hx-post="/library/import" hx-encoding="multipart/form-data" hx-target="#import-result" hx-swap="innerHTML" hx-indicator="#import-loading">
+      <label for="import-file">CSV-fil (maks 2 MB)</label>
+      <input id="import-file" type="file" name="file" accept=".csv,text/csv" required>
+      <button type="submit" class="btn btn-secondary">⬆️ Importer</button>
+    </form>
+    <p id="import-loading" class="htmx-indicator" role="status">Importerer …</p>
+    <div id="import-result" aria-live="polite"></div>
+  </details>
 </section>
 {{end}}

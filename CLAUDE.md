@@ -44,7 +44,7 @@ Relasjonell (Postgres), ikke dokument-DB – data skal filtreres/sorteres på ko
 
 - `users` – autentiserte brukere (styres av Supabase Auth)
 - `books` – delt bok-metadata (isbn, tittel, forfatter, forlag, år, omslags-URL, kilde). Én rad per ISBN, delt mellom alle brukere. `source`/kilde-kolonnen er begrenset til `google_books | open_library | nb | bibliotekenes | manual` via check constraint (migrasjon `000005`, utvidet med `bibliotekenes` i `000006`)
-- `user_books` – kobling bruker↔bok: eierskap, lagt-til-dato, lesestatus, evt. notat/plassering (finnes som migrasjon `000004_create_library_entries_table`, men `internal/library`-pakken er ikke koblet inn i noen handler ennå – se auth-avsnittets implementasjonsstatus)
+- `user_books` – kobling bruker↔bok: eierskap, lagt-til-dato, lesestatus (`unread|reading|read`, migrasjon `000008`), evt. notat/plassering (tabellen heter `library_entries`, migrasjon `000004`; redigeres fra bokdetaljsiden via `PATCH /books/:id`)
 
 Aldri dupliser bok-metadata per bruker – slå opp/opprett i `books`, koble via `user_books`.
 
@@ -82,7 +82,7 @@ Viktig prinsipp: skann-operasjonen er den eneste som snakker med eksterne tjenes
 - Strekkodeskanning: `BarcodeDetector` (nettleser-API) som primær, `zxing-js` som fallback for nettlesere uten native støtte. Skanning skjer client-side i vanlig JS (dette er det ene unntaket fra "ingen egen JS-frontend" – strekkodelesing krever kamera-tilgang i nettleseren)
 - ISBN-strekkoden er standard EAN-13 – ikke bygg egen bok-spesifikk dekodingslogikk
 - Vis lasteindikator ved skann/legg-til (kan ta et par hundre ms ved cache-miss mot eksterne API-er) – bruk HTMX sin innebygde loading-indicator-støtte (`hx-indicator`)
-- PWA: manifest + service worker for installerbarhet; kamera krever HTTPS
+- Kamera krever HTTPS
 
 ## Miljøvariabler
 

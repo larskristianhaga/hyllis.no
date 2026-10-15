@@ -4,32 +4,44 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>hyllis</title>
-  <link rel="stylesheet" href="/static/css/styles.css">
+  <title>{{.Title}}</title>
+  <meta name="description" content="Hyllis holder oversikt over bøkene du eier. Skann ISBN-strekkoden med kameraet, så henter vi tittel, forfatter og omslag automatisk.">
+  <meta name="theme-color" content="#7a4a2b">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="hyllis">
+  <meta property="og:locale" content="nb_NO">
+  <meta property="og:title" content="{{.Title}}">
+  <meta property="og:description" content="Skann. Lagre. Finn igjen. Din egen bokhylle, alltid tilgjengelig.">
+  <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+  <link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{asset "css/styles.css"}}">
   <script src="https://unpkg.com/htmx.org@2.0.9"></script>
+  <script src="{{asset "js/app.js"}}" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#content">Hopp til innhold</a>
   <header class="site-header">
     <div class="site-header__bar">
       <a class="site-brand" href="/">📚 hyllis</a>
       <nav class="site-nav" aria-label="Hovednavigasjon">
-        <a href="/">Hjem</a>
+        <a href="/"{{if isActive .Path "/"}} aria-current="page"{{end}}><span aria-hidden="true">🏠</span> Hjem</a>
         {{if .Authenticated}}
-        <a href="/scan">Skann</a>
-        <a href="/library">Bibliotek</a>
+        <a href="/scan"{{if isActive .Path "/scan"}} aria-current="page"{{end}}><span aria-hidden="true">📷</span> Skann</a>
+        <a href="/library"{{if isActive .Path "/library" "/books"}} aria-current="page"{{end}}><span aria-hidden="true">📖</span> Bibliotek</a>
         <form method="post" action="/logout" class="site-nav__logout">
-          <button type="submit" class="link-button">Logg ut</button>
+          <button type="submit" class="link-button"><span aria-hidden="true">🚪</span> Logg ut</button>
         </form>
         {{else}}
-        <a href="/login">Logg inn</a>
-        <a href="/register">Registrer</a>
+        <a href="/login"{{if isActive .Path "/login"}} aria-current="page"{{end}}>Logg inn</a>
+        <a href="/register"{{if isActive .Path "/register"}} aria-current="page"{{end}}>Registrer</a>
         {{end}}
       </nav>
     </div>
   </header>
-  <main id="content" class="content">
+  <main id="content" class="content" tabindex="-1">
     {{template "page" .Page}}
   </main>
+  <div id="toast" class="toast" role="alert" hidden></div>
 </body>
 </html>
 {{end}}

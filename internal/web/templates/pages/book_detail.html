@@ -1,7 +1,10 @@
 {{define "page"}}
 {{if .Book}}
+<p class="back-link"><a href="/library">← Tilbake til biblioteket</a></p>
 {{template "book-detail" .Book}}
+{{template "entry-details" .Entry}}
 {{else}}
 {{template "error-message" .}}
+<p><a href="/library">← Tilbake til biblioteket</a></p>
 {{end}}
 {{end}}

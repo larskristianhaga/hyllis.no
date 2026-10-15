@@ -3,7 +3,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -30,9 +32,95 @@ var pageNames = []string{
 	"register",
 }
 
-var funcMap = template.FuncMap{
-	"initial":     initial,
-	"sourceLabel": sourceLabel,
+// pageTitles are the per-page <title>s (before the " – hyllis" suffix).
+// Pages whose title depends on their data implement Titled instead.
+var pageTitles = map[string]string{
+	"scan":     "Skann bok",
+	"library":  "Bibliotek",
+	"login":    "Logg inn",
+	"register": "Registrer deg",
+}
+
+// Titled can be implemented by a page's data to override pageTitles, e.g.
+// to use a book's title as the page title.
+type Titled interface {
+	PageTitle() string
+}
+
+const siteName = "hyllis"
+
+// pageTitle builds the full <title> for a page.
+func pageTitle(name string, data any) string {
+	title := pageTitles[name]
+	if t, ok := data.(Titled); ok {
+		title = t.PageTitle()
+	}
+	if title == "" {
+		return siteName + " – skann, lagre og finn bøkene dine"
+	}
+	return title + " – " + siteName
+}
+
+// isActive reports whether the request path belongs to a nav item: "/"
+// matches only the exact root, any other prefix matches itself and its
+// sub-paths.
+func isActive(path string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if p == "/" {
+			if path == "/" {
+				return true
+			}
+			continue
+		}
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// httpsURL upgrades http:// URLs (metadata sources such as Google Books
+// still return plain-http cover links) so covers aren't blocked as mixed
+// content.
+func httpsURL(u string) string {
+	if rest, ok := strings.CutPrefix(u, "http://"); ok {
+		return "https://" + rest
+	}
+	return u
+}
+
+// assetVersion hashes every embedded static file so asset URLs change
+// exactly when their content does (and can then be cached "immutable").
+func assetVersion() string {
+	h := sha256.New()
+	_ = fs.WalkDir(staticFS, "static", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := staticFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		h.Write([]byte(path))
+		h.Write(data)
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+func newFuncMap() template.FuncMap {
+	version := assetVersion()
+	return template.FuncMap{
+		"initial":     initial,
+		"sourceLabel": sourceLabel,
+		"isActive":    isActive,
+		"https":       httpsURL,
+		// asset returns a cache-busted /static URL, e.g.
+		// {{asset "css/styles.css"}} -> /static/css/styles.css?v=<hash>.
+		"asset": func(path string) string {
+			return "/static/" + path + "?v=" + version
+		},
+	}
 }
 
 // initial returns an uppercased, one-character placeholder used for the
@@ -74,7 +162,7 @@ type Renderer struct {
 
 // New parses all templates and returns a ready-to-use Renderer.
 func New() (*Renderer, error) {
-	base, err := template.New("base").Funcs(funcMap).ParseFS(templatesFS, "templates/partials/*.html")
+	base, err := template.New("base").Funcs(newFuncMap()).ParseFS(templatesFS, "templates/partials/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse partials: %w", err)
 	}
@@ -117,7 +205,10 @@ func (rd *Renderer) Page(w http.ResponseWriter, r *http.Request, name string, da
 // now redundant but harmless).
 type layoutData struct {
 	Authenticated bool
-	Page          any
+	Title         string
+	// Path is the request path, used to mark the active nav item.
+	Path string
+	Page any
 }
 
 // PageWithStatus renders the named page like Page, but with an explicit
@@ -137,7 +228,12 @@ func (rd *Renderer) PageWithStatus(w http.ResponseWriter, r *http.Request, name 
 		return tmpl.ExecuteTemplate(w, "page", data)
 	}
 	_, authenticated := auth.UserFromContext(r.Context())
-	return tmpl.ExecuteTemplate(w, "layout", layoutData{Authenticated: authenticated, Page: data})
+	return tmpl.ExecuteTemplate(w, "layout", layoutData{
+		Authenticated: authenticated,
+		Title:         pageTitle(name, data),
+		Path:          r.URL.Path,
+		Page:          data,
+	})
 }
 
 // Partial renders the named partial directly, with no layout wrapper. It is

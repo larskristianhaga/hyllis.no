@@ -7,6 +7,7 @@
   var READER_ID = "reader";
   var RESULT_SELECTOR = "#scan-result";
   var TORCH_BUTTON_ID = "torch-toggle";
+  var LOADING_ID = "scan-loading";
   var AUTO_ADD_TOGGLE_ID = "auto-add-toggle";
 
   var html5Qrcode = null;
@@ -17,6 +18,68 @@
     if (window.navigator && typeof window.navigator.vibrate === "function") {
       window.navigator.vibrate(200);
     }
+  }
+
+  // beep plays a short confirmation tone when a code is read, so the user
+  // gets feedback even where haptics are unsupported (iOS Safari).
+  // Best-effort: any failure (no WebAudio, autoplay policy) is ignored.
+  function beep() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) {
+        return;
+      }
+      var ctx = new Ctx();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+      osc.onended = function () {
+        ctx.close();
+      };
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  // setLoading shows/hides the loading indicator for the camera path.
+  // htmx.ajax() has no hx-indicator option, so toggle htmx's own
+  // "htmx-request" class on the indicator element by hand.
+  function setLoading(on) {
+    var el = document.getElementById(LOADING_ID);
+    if (el) {
+      el.classList.toggle("htmx-request", on);
+    }
+  }
+
+  // cameraErrorMessage turns a camera start failure into an actionable
+  // message. Every message points at the manual form, which always works.
+  function cameraErrorMessage(err) {
+    var name = err && err.name ? err.name : "";
+    var text = String(err || "");
+    var manual = " Du kan fortsatt registrere ISBN manuelt under.";
+
+    if (!window.isSecureContext) {
+      return "Kameraet krever en sikker (HTTPS) tilkobling." + manual;
+    }
+    if (name === "NotAllowedError" || name === "SecurityError" || /NotAllowed|permission|denied/i.test(text)) {
+      return (
+        "Tilgang til kameraet er blokkert. Tillat kamera for denne siden i nettleserinnstillingene og last siden på nytt." +
+        manual
+      );
+    }
+    if (name === "NotFoundError" || name === "OverconstrainedError" || /no camera|not found/i.test(text)) {
+      return "Fant ikke noe kamera på denne enheten." + manual;
+    }
+    if (name === "NotReadableError" || name === "AbortError") {
+      return "Kameraet er i bruk av en annen app. Lukk den og last siden på nytt." + manual;
+    }
+    return "Kunne ikke starte kameraet." + manual;
   }
 
   function showFallbackMessage(message) {
@@ -48,13 +111,17 @@
       return;
     }
 
+    setLoading(true);
     window.htmx
       .ajax("POST", "/books/scan", {
         target: RESULT_SELECTOR,
         swap: "innerHTML",
         values: { isbn: code, source: "camera", auto: isAutoAddEnabled() ? "true" : "" },
       })
-      .finally(resumeScanning);
+      .finally(function () {
+        setLoading(false);
+        resumeScanning();
+      });
   }
 
   function resumeScanning() {
@@ -77,6 +144,7 @@
     }
     scanning = false;
     vibrate();
+    beep();
     if (html5Qrcode) {
       html5Qrcode.pause(true);
     }
@@ -140,10 +208,8 @@
         scanning = true;
         setupTorchButton();
       })
-      .catch(function () {
-        showFallbackMessage(
-          "Fikk ikke tilgang til kameraet. Bruk manuell registrering under."
-        );
+      .catch(function (err) {
+        showFallbackMessage(cameraErrorMessage(err));
       });
   }
 

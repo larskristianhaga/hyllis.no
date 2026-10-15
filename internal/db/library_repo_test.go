@@ -33,6 +33,9 @@ func TestLibraryRepository_CreateGetUpdateDelete(t *testing.T) {
 	if e.ID == "" {
 		t.Fatal("Create did not populate ID")
 	}
+	if e.Status != library.StatusUnread {
+		t.Fatalf("Create default status = %q, want %q", e.Status, library.StatusUnread)
+	}
 
 	got, err := entries.GetByUserAndBook(ctx, u.ID, b.ID)
 	if err != nil {
@@ -51,6 +54,7 @@ func TestLibraryRepository_CreateGetUpdateDelete(t *testing.T) {
 	}
 
 	e.Location = "Kontor"
+	e.Status = library.StatusRead
 	if err := entries.Update(ctx, e); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -60,6 +64,9 @@ func TestLibraryRepository_CreateGetUpdateDelete(t *testing.T) {
 	}
 	if got.Location != "Kontor" {
 		t.Fatalf("GetByID after update location = %q, want %q", got.Location, "Kontor")
+	}
+	if got.Status != library.StatusRead {
+		t.Fatalf("GetByID after update status = %q, want %q", got.Status, library.StatusRead)
 	}
 
 	if err := entries.Delete(ctx, e.ID); err != nil {

@@ -4,7 +4,7 @@
   <article class="book-detail">
     {{if .Book.CoverURL}}
     <div class="book-detail__cover">
-      <img src="{{.Book.CoverURL}}" alt="Omslag til {{.Book.Title}}" loading="lazy">
+      <img src="{{https .Book.CoverURL}}" alt="Omslag til {{.Book.Title}}" width="240" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">
     </div>
     {{else}}
     <div class="book-detail__cover" aria-hidden="true">{{initial .Book.Title}}</div>
@@ -18,7 +18,7 @@
         <dt>Kilde</dt>
         <dd>{{sourceLabel .Book.Source}}</dd>
       </dl>
-      <form hx-post="/books/confirm" hx-target="#scan-result" hx-swap="innerHTML">
+      <form hx-post="/books/confirm" hx-target="#scan-result" hx-swap="innerHTML" hx-indicator="#scan-loading">
         <input type="hidden" name="isbn" value="{{.Book.ISBN}}">
         <input type="hidden" name="title" value="{{.Book.Title}}">
         <input type="hidden" name="author" value="{{.Book.Author}}">

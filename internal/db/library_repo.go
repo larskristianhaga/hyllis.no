@@ -33,6 +33,7 @@ type entryModel struct {
 	UserID   string       `bun:"user_id"`
 	BookID   string       `bun:"book_id"`
 	AddedAt  sql.NullTime `bun:"added_at,nullzero,default:now()"`
+	Status   string       `bun:"status,nullzero,default:'unread'"`
 	Notes    *string      `bun:"notes"`
 	Location *string      `bun:"location"`
 }
@@ -42,6 +43,7 @@ func toEntry(m *entryModel) *library.Entry {
 		ID:     m.ID,
 		UserID: m.UserID,
 		BookID: m.BookID,
+		Status: m.Status,
 	}
 	if m.AddedAt.Valid {
 		e.AddedAt = m.AddedAt.Time
@@ -60,6 +62,7 @@ func fromEntry(e *library.Entry) *entryModel {
 		ID:       e.ID,
 		UserID:   e.UserID,
 		BookID:   e.BookID,
+		Status:   e.Status,
 		Notes:    nullableString(e.Notes),
 		Location: nullableString(e.Location),
 	}
@@ -67,7 +70,7 @@ func fromEntry(e *library.Entry) *entryModel {
 
 func (r *LibraryRepository) Create(ctx context.Context, e *library.Entry) error {
 	m := fromEntry(e)
-	_, err := r.db.NewInsert().Model(m).Returning("id, added_at").Exec(ctx)
+	_, err := r.db.NewInsert().Model(m).Returning("id, added_at, status").Exec(ctx)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return library.ErrDuplicateEntry
@@ -78,6 +81,7 @@ func (r *LibraryRepository) Create(ctx context.Context, e *library.Entry) error 
 	if m.AddedAt.Valid {
 		e.AddedAt = m.AddedAt.Time
 	}
+	e.Status = m.Status
 	return nil
 }
 
@@ -119,8 +123,11 @@ func (r *LibraryRepository) ListByUser(ctx context.Context, userID string) ([]*l
 }
 
 func (r *LibraryRepository) Update(ctx context.Context, e *library.Entry) error {
+	if e.Status == "" {
+		e.Status = library.StatusUnread
+	}
 	m := fromEntry(e)
-	res, err := r.db.NewUpdate().Model(m).Column("notes", "location").Where("id = ?", m.ID).Exec(ctx)
+	res, err := r.db.NewUpdate().Model(m).Column("status", "notes", "location").Where("id = ?", m.ID).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("db: update library entry: %w", err)
 	}

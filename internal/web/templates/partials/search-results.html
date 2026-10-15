@@ -1,18 +1,22 @@
 {{define "search-results"}}
 <p class="library__stats">
-  {{if .Query}}
-  Viser {{len .Books}} av {{.Total}} {{if eq .Total 1}}bok{{else}}bøker{{end}}
+  {{if or .Query (ne .Matches .Total)}}
+  Viser {{.Matches}} av {{.Total}} {{if eq .Total 1}}bok{{else}}bøker{{end}}
   {{else}}
   {{.Total}} {{if eq .Total 1}}bok{{else}}bøker{{end}} i hyllen din
   {{end}}
 </p>
 {{if .Books}}
 <div class="book-grid">
-  {{range .Books}}{{template "book-card" .}}{{end}}
+  {{template "book-cards" .}}
 </div>
 {{else if .Query}}
 <div class="error-message" role="status">
   <p>Ingen bøker matcher «{{.Query}}».</p>
+</div>
+{{else if .Total}}
+<div class="error-message" role="status">
+  <p>Ingen bøker har dette feltet utfylt.</p>
 </div>
 {{else}}
 <div class="empty-state" role="status">
@@ -20,5 +24,14 @@
   <p>Biblioteket ditt er tomt ennå.</p>
   <a class="btn btn-primary" href="/scan">📷 Skann din første bok</a>
 </div>
+{{end}}
+{{end}}
+
+{{define "book-cards"}}
+{{range .Books}}{{template "book-card" .}}{{end}}
+{{if .NextURL}}
+<button type="button" class="btn btn-secondary load-more" hx-get="{{.NextURL}}" hx-trigger="revealed, click" hx-target="this" hx-swap="outerHTML">
+  Last flere bøker …
+</button>
 {{end}}
 {{end}}
