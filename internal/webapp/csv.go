@@ -1,4 +1,4 @@
-package server
+package webapp
 
 import (
 	"encoding/csv"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/larskristianhaga/hyllis.no/internal/auth"
+	"github.com/larskristianhaga/hyllis.no/internal/api"
 	"github.com/larskristianhaga/hyllis.no/internal/book"
 	"github.com/larskristianhaga/hyllis.no/internal/library"
 )
@@ -18,7 +18,7 @@ import (
 // Limits for CSV import.
 const (
 	maxImportBytes = 2 << 20 // 2 MiB
-	maxImportRows  = 5000
+	maxImportRows  = api.MaxImportItems
 )
 
 // exportColumns is the header of the CSV written by libraryExport. Import
@@ -47,10 +47,9 @@ var importAliases = map[string][]string{
 // libraryExport backs GET /library/export.csv: the caller's whole library
 // as a UTF-8 CSV download.
 func (h *handlers) libraryExport(w http.ResponseWriter, r *http.Request) {
-	claims, _ := auth.UserFromContext(r.Context())
-
-	rows, err := h.userRows(r, claims.UserID())
+	page, err := h.api.List(r.Context(), token(r), api.ListOptions{PerPage: -1})
 	if err != nil {
+		h.log.Error("library export: list failed", "error", err)
 		http.Error(w, "Kunne ikke hente biblioteket.", http.StatusInternalServerError)
 		return
 	}
@@ -62,18 +61,18 @@ func (h *handlers) libraryExport(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.WriteString(w, "\ufeff"); err != nil {
 		return
 	}
-	if err := writeLibraryCSV(w, rows); err != nil {
+	if err := writeLibraryCSV(w, page.Items); err != nil {
 		h.log.Error("library export failed mid-stream", "error", err)
 	}
 }
 
-func writeLibraryCSV(w io.Writer, rows []libraryRow) error {
+func writeLibraryCSV(w io.Writer, items []api.Item) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write(exportColumns); err != nil {
 		return err
 	}
-	for _, row := range rows {
-		b, e := row.Book, row.Entry
+	for _, it := range items {
+		b := it.Book
 		record := []string{
 			b.ISBN,
 			csvSafe(b.Title),
@@ -83,10 +82,10 @@ func writeLibraryCSV(w io.Writer, rows []libraryRow) error {
 			csvSafe(b.Language),
 			optionalInt(b.Pages),
 			b.Source,
-			e.Status,
-			csvSafe(e.Notes),
-			csvSafe(e.Location),
-			e.AddedAt.UTC().Format(time.RFC3339),
+			it.Status,
+			csvSafe(it.Notes),
+			csvSafe(it.Location),
+			it.AddedAt.UTC().Format(time.RFC3339),
 		}
 		if err := cw.Write(record); err != nil {
 			return err
@@ -162,37 +161,36 @@ func (h *handlers) libraryImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := importResultData{Skipped: skipped}
+	req := api.ImportRequest{Items: make([]api.AddRequest, 0, len(records))}
 	for _, rec := range records {
 		author := rec.Author
 		if author == "" {
 			author = "Ukjent forfatter"
 		}
-		b := &book.Book{
-			ISBN:      rec.ISBN,
-			Title:     rec.Title,
-			Author:    author,
-			Publisher: rec.Publisher,
-			Year:      rec.Year,
-			Language:  rec.Language,
-			Pages:     rec.Pages,
-			Source:    "manual",
-		}
-		details := &library.Entry{Status: rec.Status, Notes: rec.Notes, Location: rec.Location}
-
-		_, existed, err := h.saveBook(r, b, details)
-		if err != nil {
-			h.log.Error("import: failed to save book", "isbn", rec.ISBN, "error", err)
-			result.Skipped++
-			continue
-		}
-		if existed {
-			result.Existing++
-		} else {
-			result.Added++
-		}
+		req.Items = append(req.Items, api.AddRequest{
+			Book: book.Book{
+				ISBN:      rec.ISBN,
+				Title:     rec.Title,
+				Author:    author,
+				Publisher: rec.Publisher,
+				Year:      rec.Year,
+				Language:  rec.Language,
+				Pages:     rec.Pages,
+				Source:    "manual",
+			},
+			Status:   rec.Status,
+			Notes:    rec.Notes,
+			Location: rec.Location,
+		})
 	}
 
+	res, err := h.api.Import(r.Context(), token(r), req)
+	if err != nil {
+		h.log.Error("import failed", "error", err)
+		h.render.Partial(w, "error-message", errorMessageData{Message: "Kunne ikke importere bøkene. Prøv igjen."})
+		return
+	}
+	result := importResultData{Added: res.Added, Existing: res.Existing, Skipped: skipped + res.Skipped}
 	h.render.Partial(w, "import-result", result)
 }
 
@@ -283,8 +281,8 @@ func parseImportCSV(r io.Reader) ([]importRecord, int, error) {
 			Year:      year,
 			Pages:     pages,
 			Status:    importStatus(field(row, "status")),
-			Notes:     truncateRunes(csvUnsafe(field(row, "notes")), maxNotesLen),
-			Location:  truncateRunes(csvUnsafe(field(row, "location")), maxLocationLen),
+			Notes:     truncateRunes(csvUnsafe(field(row, "notes")), api.MaxNotesLen),
+			Location:  truncateRunes(csvUnsafe(field(row, "location")), api.MaxLocationLen),
 		})
 	}
 	return records, skipped, nil
@@ -294,7 +292,7 @@ func parseImportCSV(r io.Reader) ([]importRecord, int, error) {
 // to a library status, defaulting to unread.
 func importStatus(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "read", library.StatusRead:
+	case library.StatusRead:
 		return library.StatusRead
 	case "currently-reading", "reading":
 		return library.StatusReading
@@ -317,13 +315,13 @@ func normalizeISBN(s string) string {
 
 	switch len(clean) {
 	case 13:
-		if !isValidEAN13(clean) {
+		if !api.ValidEAN13(clean) {
 			return ""
 		}
 		return clean
 	case 10:
 		body := "978" + clean[:9]
-		if !isValidEAN13(body + "0") {
+		if !api.ValidEAN13(body + "0") {
 			return ""
 		}
 		sum := 0

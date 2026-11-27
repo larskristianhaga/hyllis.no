@@ -1,4 +1,4 @@
-package server
+package webapp
 
 import (
 	"compress/gzip"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/larskristianhaga/hyllis.no/internal/book"
+	"github.com/larskristianhaga/hyllis.no/internal/api"
 )
 
 func TestSecurityHeaders(t *testing.T) {
@@ -90,24 +90,10 @@ func TestGzipResponses(t *testing.T) {
 func TestParseLibraryQuery(t *testing.T) {
 	r := httptest.NewRequest("GET", "/books/search?q=+sult+&sort=bogus&page=3", nil)
 	q := parseLibraryQuery(r)
-	if q.Q != "sult" || q.Field != defaultSearchField || q.Sort != defaultSort || q.Page != 3 {
+	if q.Q != "sult" || q.Field != defaultSearchField || q.Sort != api.SortNewest || q.Page != 3 {
 		t.Errorf("parseLibraryQuery = %+v", q)
 	}
-	if next := q.nextURL(); !strings.Contains(next, "page=4") || !strings.Contains(next, "q=sult") {
-		t.Errorf("nextURL = %q", next)
-	}
-}
-
-func TestSortBooks(t *testing.T) {
-	mk := func(title, author string) *book.Book { return &book.Book{Title: title, Author: author} }
-	books := []*book.Book{mk("b", "z"), mk("A", "y"), mk("c", "x")}
-
-	sortBooks(books, sortTitle)
-	if books[0].Title != "A" || books[2].Title != "c" {
-		t.Errorf("by title: %v %v %v", books[0].Title, books[1].Title, books[2].Title)
-	}
-	sortBooks(books, sortAuthor)
-	if books[0].Author != "x" {
-		t.Errorf("by author: first = %q", books[0].Author)
+	if next := q.pageURL(4); !strings.Contains(next, "page=4") || !strings.Contains(next, "q=sult") {
+		t.Errorf("pageURL = %q", next)
 	}
 }

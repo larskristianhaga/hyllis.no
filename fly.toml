@@ -1,8 +1,15 @@
+# Web app (HTMX pages + Supabase login). Holds no database/Redis/Google
+# Books credentials — all data goes through the API app (fly.api.toml),
+# reached over Fly's private network via Flycast.
 app = 'hyllis'
 primary_region = 'ams'
 
+[processes]
+  app = 'run-app web'
+
 [env]
   PORT = '8080'
+  API_URL = 'http://hyllis-api.flycast'
 
 [http_service]
   internal_port = 8080

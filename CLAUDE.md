@@ -9,7 +9,10 @@ Man søker/filtrerer senere i eget bibliotek. Støtter norske og engelske bøker
 
 ## Arkitektur
 
-- **Backend:** Go, hostet på Fly.io, eksponerer REST API. Ett entrypoint: `main.go` i repo-roten (Dockerfilen bygger root-pakken – legg ikke en ny `cmd/server/main.go` tilbake, den er fjernet med vilje for å unngå duplikat-drift)
+- **To tjenester, én binær:** systemet er delt i et **JSON-API** og en **web-app**, som deployes som to separate Fly-apper fra samme Docker-image. Ett entrypoint: `main.go` i repo-roten, modus velges med første argument (`run-app api` / `run-app web`; uten argument kjøres begge i samme prosess for lokal utvikling og `docker run`). Legg ikke en ny `cmd/server/main.go` tilbake – den er fjernet med vilje for å unngå duplikat-drift
+  - **API** (`internal/apiserver`, Fly-app `hyllis-api`, `fly.api.toml`): eier Postgres, Redis og de eksterne ISBN-oppslagene, og all forretningslogikk (eierskap, duplikat-regler, søk/sortering/paging, validering). Kun privat via Flycast (`http://hyllis-api.flycast`), ingen offentlige IP-er. Alle `/v1`-kall krever `Authorization: Bearer <Supabase access token>`, som API-et verifiserer selv mot Supabase JWKS – det stoler ikke på klienten
+  - **Web-app** (`internal/webapp`, Fly-app `hyllis`, `fly.toml`): HTMX-sider, statiske filer og Supabase-innloggingen (cookies). Eier **ingen data** og har ingen DB-/Redis-/Google Books-credentials; alt går via `internal/api.Client` mot `API_URL`, med brukerens eget access token videresendt
+  - **Kontrakt** (`internal/api`): request/response-typer, feilkoder og klient. Web-appen skal aldri importere `internal/db`, `internal/lookup` eller repo-implementasjonene – kun `internal/api`
 - **Frontend:** Go + HTMX (server-rendret HTML, ingen separat JS-frontend-rammeverk), kamera i nettleser for skanning
 - **Database:** PostgreSQL (Supabase), aksessert via **Bun ORM** (`github.com/uptrace/bun` + `pgdialect`) i `internal/db`, over `pgx/v5`s `database/sql`-adapter. Poolen kjøres med `pgx.QueryExecModeSimpleProtocol` – kreves fordi Supabase sin pooler (PgBouncer, transaction mode) ikke støtter prepared statements. Domenetyper (`book.Book`, `library.Entry`, `user.User`) er fri for ORM-tags; hver repo-fil har egne private `*Model`-structs med `bun:"..."`-tags og mapping til/fra domenetypen
 - **Migrasjoner:** `bun/migrate`, filene ligger i `migrations/*.sql` og embedes i binæren via `//go:embed` (`migrations/migrations.go`) – nødvendig fordi distroless-sluttlaget i Dockerfilen kun kopierer den kompilerte binæren, ikke `migrations/`-mappen. `internal/db.RunMigrations(ctx, db)` kjører alle uapplied migrasjoner og er trygg å kalle på hver oppstart (no-op når alt er applied)
@@ -25,14 +28,14 @@ To klart adskilte datalag:
 
 Bruk **Supabase Auth** for registrering/innlogging – ikke bygg egen JWT-løsning i Go. Go-backend validerer Supabase sine access tokens (JWT) på beskyttede endepunkter, men eier ikke selve auth-flyten.
 
-**Implementasjonsstatus:** `/login` og `/register` finnes som sider i `internal/server/handlers.go`, men er placeholder – `loginSubmit`/`registerSubmit` rendrer bare en "ikke tilgjengelig ennå"-melding, ingen faktisk Supabase Auth-kall er koblet på. Det finnes heller ingen JWT-valideringsmiddleware eller session-håndtering ennå. `internal/user` har typer/interfaces, ikke wiring. Dette – pluss `internal/library`s per-bruker eierskap (`user_books`) – er den største gjenstående biten av "flerbruker"-kravet.
+**Implementasjonsstatus:** web-appen (`internal/webapp`) gjør login/register/logout mot Supabase (`internal/auth.Client`) og holder sesjonen i HttpOnly-cookies (`auth.Middleware` verifiserer og refresher). Access tokenet videresendes som Bearer til API-et, som verifiserer det på nytt (`apiserver.requireBearer`) og scoper alt til `sub`. Profilspeilet i `users` oppdateres via `PUT /v1/me` etter hver innlogging.
 
 ## Regler for bokoppslag
 
 Ved skanning av ny ISBN, følg denne rekkefølgen strengt:
 
 1. Sjekk Redis-cache (`isbn:<isbn13>`) først – dette skjer alltid sekvensielt og først, aldri parallelt med noe annet
-2. Ved miss: spør **Google Books API**, **Open Library API**, **Nasjonalbibliotekets søke-API** (`nb.no/services/search/v2`) og **bibliotekenes.no** (`bibliotekenes.no/api/e-commerce/search/bibsent-suggestions?query=<isbn13>`, Biblioteksentralens produktsøk) **parallelt** (goroutines) – ikke sekvensielt. Prioritetsrekkefølgen Google Books > Open Library > NB > bibliotekenes.no er likevel bindende for *hvilket svar som vinner*: når alle har svart, velges første treff i den rekkefølgen uansett hvilken goroutine som faktisk fullførte først. Dette er implementert i `internal/lookup.Service.Resolve` – endre ikke til strengt sekvensielt uten å diskutere med bruker, det var en explisitt ytelses-motivert endring
+2. Ved miss: spør **Google Books API**, **Open Library API**, **Nasjonalbibliotekets søke-API** (`nb.no/services/search/v2`) og **bibliotekenes.no** (`bibliotekenes.no/api/e-commerce/search/bibsent-suggestions?query=<isbn13>`, Biblioteksentralens produktsøk) **parallelt** (goroutines) – ikke sekvensielt. Prioritetsrekkefølgen Google Books > Open Library > NB > bibliotekenes.no er likevel bindende for *hvilket svar som vinner*: når alle har svart, velges første treff i den rekkefølgen uansett hvilken goroutine som faktisk fullførte først. Dette er implementert i `internal/lookup.Service.Resolve` (kalt fra API-ets `GET /v1/lookup/{isbn}`) – endre ikke til strengt sekvensielt uten å diskutere med bruker, det var en explisitt ytelses-motivert endring
 3. Lagre resultatet i Redis før det returneres
 
 ### Hvis alle fire API-ene bommer
@@ -48,30 +51,41 @@ Relasjonell (Postgres), ikke dokument-DB – data skal filtreres/sorteres på ko
 
 Aldri dupliser bok-metadata per bruker – slå opp/opprett i `books`, koble via `user_books`.
 
-**Kjent gap:** migrasjonene kjøres i tester (mot testcontainers-Postgres) og har en `db.RunMigrations`-funksjon klar til bruk, men blir per nå ikke kalt fra `main.go` ved oppstart mot den ekte Supabase-databasen – tabellene finnes derfor ikke der før dette er koblet på. Sjekk om dette er fikset før du antar at Supabase-skjemaet er oppdatert.
+**Migrasjoner ved oppstart:** API-et (`main.go` → `newDB`) kjører `db.RunMigrations` hver gang det starter med `DATABASE_URL` satt. Web-appen rører aldri databasen.
 
 ### Duplikat-regler
 - Unik constraint på `books.isbn` – én rad per ISBN, uansett hvor mange brukere som eier boka
 - Unik constraint på `(user_id, book_id)` i `user_books` – forhindrer at samme bok legges til flere ganger for samme bruker ved dobbel-scan eller dobbelttrykk
 - Ved forsøk på å legge til en bok brukeren allerede har: returner eksisterende rad i stedet for å feile eller opprette duplikat
 
-## API-endepunkter (retningslinje)
+## Endepunkter
 
-- `POST /books/scan` – tar ISBN (fra kamera eller manuelt felt), går via cache→eksterne API-er, lagrer i `books`. **Implementert.** Ved `lookup.ErrNotFound` (alle kilder bommet) rendres et manuelt utfyllingsskjema i stedet for å feile
-- `POST /books/manual` – lagrer bok fra det manuelle skjemaet med `kilde: manual`. **Implementert**
-- `GET /books` – alias for `/library`-siden (samme handler); søk/filtrer i eget bibliotek, rent server-rendret HTML, **kun mot Postgres/minne-repo**, aldri eksterne kall herfra. **Implementert**
-- `GET /books/search` – htmx-partial for søk/filtrering i biblioteket (fuzzy søk, se frontend-regler). **Implementert**
-- `GET /books/:id` – hent metadata + brukerdata for én bok. **Implementert**
-- `DELETE /books/:id` – **Implementert**, svarer 204 + `HX-Redirect: /library` ved htmx-kall
+### JSON-API (`internal/apiserver`, alle krever Bearer-token)
 
-Merk: dette er en HTMX-app, ikke et JSON-API – alle disse endepunktene returnerer HTML-fragmenter/sider, ikke JSON.
+- `GET /v1/lookup/{isbn}` – cache → eksterne API-er, **lagrer ingenting**. 404 `not_found` når alle kilder bommer. **Eneste endepunkt som snakker med eksterne tjenester**
+- `GET /v1/library` – søk/filtrer/sorter/paginer eget bibliotek (`q`, `field`, `sort`, `page`, `per_page`; `per_page=-1` = alt, brukes av CSV-eksport). Rent lokalt mot Postgres
+- `POST /v1/library` – legg til bok (201), eller returner eksisterende rad med `existed: true` (200) ved duplikat
+- `POST /v1/library/import` – batch-import (maks 5000), kun data fra fila, ingen oppslag
+- `GET /v1/library/isbn/{isbn}` – brukerens eksemplar av en ISBN (404 hvis ikke eid)
+- `GET|PATCH|DELETE /v1/library/{id}` – `id` er library entry-id, aldri `books.id`. Andres oppføringer gir 404
+- `GET|PUT /v1/me` – profilspeil; id/e-post tas alltid fra tokenet
+- Feil er `{"code": "...", "message": "..."}` med kodene i `internal/api` – web-appen mapper koder til norske meldinger
+
+### Web-app (`internal/webapp`, HTML/HTMX, ikke JSON)
+
+- `POST /books/scan` – ISBN fra kamera/manuelt felt → `GET /v1/lookup`; preview, eller lagring ved "auto". Ved `not_found` rendres manuelt utfyllingsskjema
+- `POST /books/confirm`, `POST /books/manual` (`kilde: manual`) → `POST /v1/library`
+- `GET /library` (alias `GET /books`), `GET /books/search` (htmx-partial) → `GET /v1/library`
+- `GET|PATCH|DELETE /books/{id}` → tilsvarende `/v1/library/{id}`; DELETE svarer 204 + `HX-Redirect: /library` ved htmx-kall
+- `GET /library/export.csv`, `POST /library/import` – CSV-formatet håndteres i web-appen, data via API-et
 
 Autentisering skjer via Supabase Auth (se eget avsnitt) – ingen egne `/auth/*`-endepunkter i Go-backend.
 
-Viktig prinsipp: skann-operasjonen er den eneste som snakker med eksterne tjenester. Alt søk i egen bokhylle skal være rent lokalt mot Postgres og dermed alltid raskt, uavhengig av bibliotekstørrelse.
+Viktig prinsipp: lookup er den eneste operasjonen som snakker med eksterne tjenester. Alt søk i egen bokhylle skal være rent lokalt mot Postgres og dermed alltid raskt, uavhengig av bibliotekstørrelse.
 
 ## Søk og filtrering i eget bibliotek
 
+- Søket kjøres i API-et (`apiserver.pageOf`), ikke i web-appen.
 - Søk er **fuzzy/skrivefeil-tolerant** (`internal/fuzzy`, avhengighetsfri – substring-match per ord med Levenshtein-fallback), ikke eksakt substring-match. Matcher på tittel + forfatter.
 - Feltvelgeren i biblioteket ("Vis kun bøker med …") er **rent kosmetisk utvisning** – den påvirker aldri hva søket matcher på, bare hvilke felt som vises i resultatlisten. Søk og filter er to uavhengige ting; kobl dem ikke sammen igjen.
 - Resultater sorteres deterministisk (nyeste `created_at` først, ISBN som tiebreak) – viktig i minne-repoet siden Go's map-iterasjon ellers gir tilfeldig rekkefølge.
@@ -86,21 +100,21 @@ Viktig prinsipp: skann-operasjonen er den eneste som snakker med eksterne tjenes
 
 ## Miljøvariabler
 
-Forventede env-vars som ligger i som secrets i Fly.io:
+Secrets i Fly.io, fordelt på de to appene:
 
-- `DATABASE_URL` – tilkobling til Supabase Postgres
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` – for auth-validering og evt. server-side Supabase-kall
-- `REDIS_URL` – tilkobling til Fly Redis/Upstash
-- `GOOGLE_BOOKS_API_KEY` – for Google Books-oppslag (server-side kun, aldri eksponert til frontend)
+- **`hyllis-api`:** `DATABASE_URL` (Supabase Postgres), `REDIS_URL` (Fly Redis/Upstash), `SUPABASE_URL` (JWKS for token-verifisering), `GOOGLE_BOOKS_API_KEY` (server-side kun)
+- **`hyllis` (web):** `SUPABASE_URL` / `SUPABASE_ANON_KEY` (login/refresh/JWKS). `API_URL` står som vanlig env i `fly.toml`. Web-appen skal **ikke** ha `DATABASE_URL`, `REDIS_URL`, `SUPABASE_SERVICE_ROLE_KEY` eller `GOOGLE_BOOKS_API_KEY` – de bør fjernes derfra (`fly secrets unset -a hyllis ...`) når API-appen er oppe
+- `PORT` (web 8080, API 8081), og i kombinert lokal modus `API_PORT` (default 8081, kun loopback)
 
 ### Lokal utvikling
 
-`main.go` kaller `godotenv.Load()` først i `main()` for å lese en lokal `.env`-fil – rent utviklingsverktøy, feiler stille (ignorert error) hvis filen ikke finnes, så Docker/Fly (som injiserer ekte env-vars) er upåvirket. Mangler `DATABASE_URL`/`REDIS_URL` lokalt, faller appen tilbake til hhv. en in-memory bok-repo og `lookup.NoopCache` i stedet for å feile ved oppstart.
+`main.go` kaller `godotenv.Load()` først i `main()` for å lese en lokal `.env`-fil – rent utviklingsverktøy, feiler stille (ignorert error) hvis filen ikke finnes, så Docker/Fly (som injiserer ekte env-vars) er upåvirket. Uten argument kjører `go run .` både API (127.0.0.1:8081) og web (8080) i samme prosess. Mangler `DATABASE_URL`/`REDIS_URL` lokalt, faller API-et tilbake til hhv. en in-memory bok-repo og `lookup.NoopCache` i stedet for å feile ved oppstart.
 
 **⚠️ Sikkerhet:** `.env` skal aldri committes med ekte secrets. Sjekk `git status`/`git ls-files` før du rører denne filen – den har historisk vært git-tracked med ekte Redis- og Supabase-credentials i working tree. Hvis den er tracked: foreslå `git rm --cached .env` + commit, og flagg for bruker at eksponerte credentials bør roteres. Gjør ikke dette selv uten explisitt bekreftelse fra bruker – det er destruktivt/uigjenkallelig nok til å kreve godkjenning.
 
 ## Driftsnotater
 
-- Go-appen har ingen lokal persistent state – all data i Postgres/Redis, så appen kan restartes/skaleres fritt
+- Deploy (`.github/workflows/fly-deploy.yml`) kjører API-et først (`fly.api.toml`, `--no-public-ips`), så web-appen (`fly.toml`)
+- Ingen av appene har lokal persistent state – all data i Postgres/Redis, så appen kan restartes/skaleres fritt
 - Ingen Fly Volume nødvendig
 - `DATABASE_URL` peker til ekstern Supabase-instans
