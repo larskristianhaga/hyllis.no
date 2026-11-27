@@ -1,4 +1,4 @@
-name: "Deploy app to Fly.io"
+name: "Deploy API and web app to Fly.io"
 
 permissions:
   contents: read
@@ -25,7 +25,13 @@ jobs:
       - name: "Setup Flyctl"
         uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
 
-      - name: "Deploy to Fly.io"
-        run: flyctl deploy --remote-only
+      # The API goes first so the web app never runs against an older API.
+      - name: "Deploy API to Fly.io"
+        run: flyctl deploy --remote-only --config fly.api.toml --no-public-ips
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: "Deploy web app to Fly.io"
+        run: flyctl deploy --remote-only --config fly.toml
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

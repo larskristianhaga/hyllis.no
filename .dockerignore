@@ -1,5 +1,6 @@
 .idea/
 
 fly.toml
+fly.api.toml
 .env
 .env.*

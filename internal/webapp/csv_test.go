@@ -1,4 +1,4 @@
-package server
+package webapp
 
 import (
 	"bytes"
@@ -6,16 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/larskristianhaga/hyllis.no/internal/api"
 	"github.com/larskristianhaga/hyllis.no/internal/book"
 	"github.com/larskristianhaga/hyllis.no/internal/library"
 )
 
 func TestNormalizeISBN(t *testing.T) {
 	tests := map[string]string{
-		`="9780143127550"`: "9780143127550",
+		`="9780143127550"`:  "9780143127550",
 		"978-0-14-312755-0": "9780143127550",
 		"0143127551":        "9780143127550",
-		"9780143127551":     "9780143127551", // checksum is not verified, see isValidEAN13
+		"9780143127551":     "9780143127551", // checksum is not verified, see api.ValidEAN13
 		"12345":             "",
 		"":                  "",
 		"abcdefghijklm":     "",
@@ -59,12 +60,10 @@ func TestParseImportCSV_MissingColumns(t *testing.T) {
 }
 
 func TestCSVExportImportRoundTrip(t *testing.T) {
-	rows := []libraryRow{{
-		Book: &book.Book{ISBN: "9780143127550", Title: "=cmd()", Author: "Å, Ø", Source: "nb", Year: 2001},
-		Entry: &library.Entry{
-			Status: library.StatusReading, Notes: "linje 1\nlinje 2", Location: "Stue",
-			AddedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-		},
+	rows := []api.Item{{
+		Book:   book.Book{ISBN: "9780143127550", Title: "=cmd()", Author: "Å, Ø", Source: "nb", Year: 2001},
+		Status: library.StatusReading, Notes: "linje 1\nlinje 2", Location: "Stue",
+		AddedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	}}
 
 	var buf bytes.Buffer

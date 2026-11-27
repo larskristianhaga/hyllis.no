@@ -1,0 +1,40 @@
+# JSON API (Postgres, Redis, ISBN lookups). Private: it should only have a
+# Flycast (private IPv6) address, no public IPs — the web app (fly.toml)
+# calls it at http://hyllis-api.flycast. Every /v1 request still carries and
+# is checked against the end user's Supabase access token.
+#
+# First-time setup (see README):
+#   fly apps create hyllis-api
+#   fly ips allocate-v6 --private -a hyllis-api
+#   fly secrets set -a hyllis-api DATABASE_URL=... REDIS_URL=... SUPABASE_URL=... GOOGLE_BOOKS_API_KEY=...
+#   fly deploy -c fly.api.toml --no-public-ips
+app = 'hyllis-api'
+primary_region = 'ams'
+
+[processes]
+  app = 'run-app api'
+
+[env]
+  PORT = '8081'
+
+[http_service]
+  internal_port = 8081
+  # Flycast traffic is plain HTTP inside Fly's private WireGuard network.
+  force_https = false
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [[http_service.checks]]
+    grace_period = '10s'
+    interval = '30s'
+    method = 'GET'
+    path = '/health'
+    timeout = '5s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
